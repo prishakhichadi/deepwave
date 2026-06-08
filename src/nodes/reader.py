@@ -1,0 +1,50 @@
+import csv
+import io
+from typing import Dict
+from src.state import KernelAgentState
+
+def profiling_reader_node(state: KernelAgentState) -> Dict:
+    """
+    Reads raw CSV string data from rocprof and normalizes it into
+    standard metrics mapped explicitly to hardware tracking names.
+    """
+    raw_csv = state["raw_profiling_data"]
+    metrics: Dict[str, float] = {
+        "valu_util": 0.0,
+        "salu_util": 0.0,
+        "mem_stalled": 0.0,
+        "max_waves_per_cu": 0.0
+    }
+    
+    # Strip any potential shell artifacts or leading space
+    clean_csv = raw_csv.strip()
+    if not clean_csv:
+        return {"parsed_metrics": metrics}
+        
+    try:
+        f = io.StringIO(clean_csv)
+        reader = csv.DictReader(f)
+        
+        # Parse the metrics from the current profiling sweep line
+        for row in reader:
+            # Strip spaces from CSV column names to prevent mapping errors
+            clean_row = {k.strip(): v.strip() for k, v in row.items() if k is not None}
+            
+            if "VALUUtilization" in clean_row:
+                metrics["valu_util"] = float(clean_row["VALUUtilization"])
+            if "SALUUtilization" in clean_row:
+                metrics["salu_util"] = float(clean_row["SALUUtilization"])
+            if "MemUnitStalled" in clean_row:
+                metrics["mem_stalled"] = float(clean_row["MemUnitStalled"])
+            if "MaxWavesPerCU" in clean_row:
+                metrics["max_waves_per_cu"] = float(clean_row["MaxWavesPerCU"])
+                
+    except Exception as e:
+        # Fallback tracking if the file parsing crashes due to formatting anomalies
+        print(f"[Warning] Error occurred while reading telemetry metrics: {e}")
+        
+    # Return updates to append to the system graph state
+    return {
+        "parsed_metrics": metrics, 
+        "iteration_count": state.get("iteration_count", 0) + 1
+    }
