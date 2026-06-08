@@ -1,3 +1,7 @@
+"""parses raw C++ HIP code files (.hip or .cu) into a structured format using tree-sitter-cpp rather than
+treating the code like raw text. builds an AST so that agent can map a hardware flaw directly to specific loop
+scopes or global pointer arguments."""
+
 from tree_sitter import Language, Parser
 import tree_sitter_cpp
 from typing import Dict

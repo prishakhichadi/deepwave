@@ -1,3 +1,7 @@
+"""cross-references the performance bottleneck with the structural tokens identified by your tree-sitter node,
+rewriting the .hip file with high-performance kernel adjustments."""
+
+
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from typing import Dict

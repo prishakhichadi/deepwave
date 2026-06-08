@@ -1,3 +1,5 @@
+"""production-grade markdown report for developers. uses difflib"""
+
 import difflib
 from typing import Dict
 from src.state import KernelAgentState

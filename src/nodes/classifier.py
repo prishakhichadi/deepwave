@@ -1,3 +1,7 @@
+"""reviews the normalized metrics and outputs a structured diagnosis classifying the primary performance limitation.
+node utilizes LangChain's with_structured_output. answers in strict json."""
+
+
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from typing import Dict

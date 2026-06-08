@@ -1,3 +1,7 @@
+'''every node takes the shared graph state as an input and returns modified keys to append back to it.
+shared founsation is src/state.py'''
+
+
 from typing import Dict, List, Optional, Literal
 from typing_extensions import TypedDict
 from pydantic import BaseModel, Field
