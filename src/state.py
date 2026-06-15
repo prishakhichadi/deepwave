@@ -108,3 +108,22 @@ class KernelAgentState(TypedDict):
     # --- Cyclic Flow Control ---
     iteration_count: int
     max_iterations: int            # Guard rail to prevent infinite loops (default: 3)
+
+    verification_status: Optional[str]   # "passed" or "failed_retry"
+    critic_feedback: Optional[str]       # Human-readable fault + remedy text
+
+
+
+
+class CriticVerdict(BaseModel):
+    """Schema for the compiler simulator critic's structured output."""
+    is_syntactically_valid: bool
+    identified_flaws: List[str] = Field(
+        description="List of syntax or structural issues found"
+    )
+    remedy_suggestions: List[str] = Field(
+        description="Concrete fixes the rewriter should apply on retry"
+    )
+    preservation_intact: bool = Field(
+        description="Whether the original kernel signature and __global__ qualifier were preserved"
+    )
