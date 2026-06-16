@@ -10,7 +10,7 @@ from src.nodes.classifier import bottleneck_classifier_node
 from src.nodes.planner import optimization_planner_node
 from src.nodes.rewriter import kernel_rewriter_node
 from src.nodes.reporter import report_writer_node
-from src.nodes.critic import critic_node  # already exists in your codebase
+from src.nodes.critic import compiler_simulator_critic_node as critic_node
 
 
 # ---------------------------------------------------------------------------
@@ -29,21 +29,12 @@ def should_loop(state: KernelAgentState) -> str:
     Loop condition: diagnosis confidence is below threshold AND we haven't
     hit max_iterations yet. This prevents infinite loops on ambiguous kernels.
     """
-    diagnosis = state.get("diagnosis")
+    status = state.get("verification_status")
     iteration = state.get("iteration_count", 1)
-    max_iter = state.get("max_iterations", DEFAULT_MAX_ITERATIONS)
-
-    if diagnosis is None:
-        print("[graph] No diagnosis available — proceeding to report.")
-        return "done"
-
-    if diagnosis.confidence_score < CONFIDENCE_THRESHOLD and iteration < max_iter:
-        print(f"[graph] Low confidence ({diagnosis.confidence_score:.2f}) on iteration "
-              f"{iteration}/{max_iter} — looping back to classifier.")
+    max_iter = state.get("max_iterations", 3)
+    
+    if status == "failed_retry" and iteration < max_iter:
         return "replan"
-
-    print(f"[graph] Confidence {diagnosis.confidence_score:.2f} sufficient or max iterations "
-          f"reached ({iteration}/{max_iter}) — proceeding to report.")
     return "done"
 
 

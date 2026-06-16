@@ -67,6 +67,8 @@ def kernel_rewriter_node(state: KernelAgentState) -> Dict:
             "--- ORIGINAL SOURCE CODE ---\n"
             "{source_code}\n\n"
             "Apply the strategy. Return the full rewritten kernel."
+            "--- CRITIC FEEDBACK FROM PREVIOUS PASS ---\n"
+            "{critic_feedback}\n\n"
         )
     ])
 
@@ -83,6 +85,7 @@ def kernel_rewriter_node(state: KernelAgentState) -> Dict:
         "amd_hints": "\n".join(f"  - {h}" for h in plan.amd_specific_hints) or "None specified",
         "ast_insights": "\n".join(ast_insights),
         "source_code": state["raw_kernel_code"],
+        "critic_feedback": state.get("critic_feedback", "No prior critic feedback."),
     })
 
     annotation_count = len(rewritten.line_by_line_annotations)
