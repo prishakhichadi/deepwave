@@ -14,7 +14,7 @@ def compiler_simulator_critic_node(state: KernelAgentState) -> Dict:
     to catch typos, broken bracket structures, or un-optimized loops, forcing 
     re-generation if things look broken.
     """
-    # Enforce temperature 0.0 to guarantee data-driven grading
+
     llm = ChatOpenAI(model="gpt-4o", temperature=0.0)
     structured_critic = llm.with_structured_output(CriticVerdict)
 
@@ -54,7 +54,7 @@ def compiler_simulator_critic_node(state: KernelAgentState) -> Dict:
         "rewritten_code": state["optimized_kernel_code"]
     })
 
-    # Convert Pydantic object properties directly into graph state routing variables
+
     status = "passed" if verdict.is_syntactically_valid else "failed_retry"
     feedback_text = (
         f"Validation Result: {status.upper()}\n"
