@@ -44,11 +44,10 @@ def bottleneck_classifier_node(state: KernelAgentState) -> Dict:
     enforces deterministic hardware reasoning.
     """
     # Temperature 0 — hardware diagnosis must be data-driven, not creative
-    llm = ChatOpenAI(
-        model=settings.classifier_model.model,
-        temperature=settings.classifier_model.temperature,
+    llm = settings.build_llm(settings.classifier_model)
+    structured_llm = llm.with_structured_output(
+        BottleneckDiagnosis, method=settings.structured_output_method
     )
-    structured_llm = llm.with_structured_output(BottleneckDiagnosis)
 
     prompt = ChatPromptTemplate.from_messages([
         (

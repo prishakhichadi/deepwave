@@ -26,11 +26,10 @@ def kernel_rewriter_node(state: KernelAgentState) -> Dict:
 
     # Temperature 0.2 — allow creative strategy selection (loop unrolling vs tiling)
     # but keep code generation grounded in the plan
-    llm = ChatOpenAI(
-        model=settings.rewriter_model.model,
-        temperature=settings.rewriter_model.temperature,
+    llm = settings.build_llm(settings.rewriter_model)
+    structured_writer = llm.with_structured_output(
+        OptimizedKernelOutput, method=settings.structured_output_method
     )
-    structured_writer = llm.with_structured_output(OptimizedKernelOutput)
 
     prompt = ChatPromptTemplate.from_messages([
         (

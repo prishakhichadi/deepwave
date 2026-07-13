@@ -59,11 +59,10 @@ def optimization_planner_node(state: KernelAgentState) -> Dict:
 
     # Temperature 0.1 — slight flexibility to choose between strategies,
     # but still primarily data-driven
-    llm = ChatOpenAI(
-        model=settings.planner_model.model,
-        temperature=settings.planner_model.temperature,
+    llm = settings.build_llm(settings.planner_model)
+    structured_llm = llm.with_structured_output(
+        OptimizationStrategy, method=settings.structured_output_method
     )
-    structured_llm = llm.with_structured_output(OptimizationStrategy)
 
     prompt = ChatPromptTemplate.from_messages([
         (

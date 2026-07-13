@@ -29,8 +29,9 @@ def should_loop(state: KernelAgentState) -> str:
     Conditional edge function. Called after the critic node.
     Returns 'replan' to loop back, or 'done' to proceed to the report.
 
-    Loop condition: diagnosis confidence is below threshold AND we haven't
-    hit max_iterations yet. This prevents infinite loops on ambiguous kernels.
+    Loop condition: the critic found the rewrite syntactically/structurally invalid,
+    AND we haven't hit max_iterations yet. This prevents infinite loops on
+    persistently broken generations.
     """
     status = state.get("verification_status")
     iteration = state.get("iteration_count", 1)
@@ -47,10 +48,11 @@ def build_graph() -> StateGraph:
 
     Pipeline:
         reader → analyzer → classifier → planner → rewriter → critic
-                                ↑                                  |
-                                └──────── (if low confidence) ─────┘
-                                                                   |
-                                                (if confident) → reporter → END
+                                                        ↑         |
+                                                        └─ retry ─┘
+                                                       (if critic rejects the rewrite)
+                                                                  |
+                                                (if valid) → reporter → END
     """
     graph = StateGraph(KernelAgentState)
 
@@ -71,12 +73,17 @@ def build_graph() -> StateGraph:
     graph.add_edge("rewriter",   "critic")
 
     # --- Conditional feedback edge from critic ---
+    # Retries go straight back to the rewriter (not the classifier) because the
+    # diagnosis and plan are still presumed correct — only the generated code was
+    # rejected. The rewriter prompt already has a {critic_feedback} slot for exactly
+    # this case, so this also fixes a bug where that feedback was never actually used
+    # on retry (the old routing re-ran the full diagnosis from scratch instead).
     graph.add_conditional_edges(
         "critic",
         should_loop,
         {
-            "replan": "classifier",   # Loop back — re-diagnose with richer context
-            "done":   "reporter",     # Confident enough — write the final report
+            "replan": "rewriter",     # Loop back — regenerate the code using critic feedback
+            "done":   "reporter",     # Valid — write the final report
         }
     )
 

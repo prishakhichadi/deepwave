@@ -16,11 +16,10 @@ def compiler_simulator_critic_node(state: KernelAgentState) -> Dict:
     re-generation if things look broken.
     """
 
-    llm = ChatOpenAI(
-        model=settings.critic_model.model,
-        temperature=settings.critic_model.temperature,
+    llm = settings.build_llm(settings.critic_model)
+    structured_critic = llm.with_structured_output(
+        CriticVerdict, method=settings.structured_output_method
     )
-    structured_critic = llm.with_structured_output(CriticVerdict)
 
     prompt = ChatPromptTemplate.from_messages([
         (
@@ -68,5 +67,11 @@ def compiler_simulator_critic_node(state: KernelAgentState) -> Dict:
 
     return {
         "verification_status": status,
-        "critic_feedback": feedback_text
+        "critic_feedback": feedback_text,
+        # Bug fix: iteration_count previously only incremented in reader.py, which runs
+        # once at pipeline start. Since retries loop back through this node (not reader),
+        # the counter never advanced on retry, and should_loop's `iteration < max_iter`
+        # check could never trip — meaning a persistently failing rewrite would retry
+        # forever instead of stopping at max_iterations. Incrementing it here instead.
+        "iteration_count": state.get("iteration_count", 0) + 1,
     }

@@ -1,8 +1,3 @@
-"""Parses raw HIP/CUDA kernel source (.hip or .cu) into a structured AST using tree-sitter-cpp.
-Goes far beyond token counting — detects real GPU anti-patterns: uncoalesced memory access,
-thread divergence in conditionals, missing shared memory usage, scalar operations inside kernels,
-and pointer aliasing risks. Each finding is a typed ASTFinding object for downstream LLM nodes."""
-
 from tree_sitter import Language, Parser, Node, Query, QueryCursor
 import tree_sitter_cpp
 from typing import Dict, List, Tuple
@@ -10,10 +5,8 @@ from src.state import KernelAgentState, ASTFinding
 
 
 def _run_query(lang: Language, query_str: str, root: Node) -> List[Tuple[Node, str]]:
-    """Compatibility shim for tree-sitter >=0.22, where Language.query() was removed in
-    favor of Query(lang, query_str) + QueryCursor(query), and QueryCursor.captures()
-    returns {capture_name: [nodes]} instead of a flat [(node, capture_name), ...] list.
-    This restores the flat-list shape the detection passes below are written against."""
+
+
     query = Query(lang, query_str)
     cursor = QueryCursor(query)
     captures_by_name = cursor.captures(root)  # {capture_name: [nodes]}
@@ -25,11 +18,7 @@ def _run_query(lang: Language, query_str: str, root: Node) -> List[Tuple[Node, s
 
 
 def kernel_analyzer_node(state: KernelAgentState) -> Dict:
-    """
-    Parses the target HIP kernel using tree-sitter and runs a suite of
-    GPU-specific structural analyses. Returns both rich ASTFinding objects
-    and a human-readable insights list for LLM prompt injection.
-    """
+
     CPP_LANGUAGE = Language(tree_sitter_cpp.language())
     parser = Parser(CPP_LANGUAGE)
 
@@ -62,11 +51,9 @@ def kernel_analyzer_node(state: KernelAgentState) -> Dict:
     }
 
 
-# ---------------------------------------------------------------------------
 # Detection Pass 1 — Thread Divergence
-# Finds if/else blocks inside kernel functions where the condition references
 # threadIdx — classic cause of wavefront serialization on AMD hardware.
-# ---------------------------------------------------------------------------
+
 def _detect_thread_divergence(root: Node, lines: List[str], lang: Language) -> List[ASTFinding]:
     findings = []
     captures = _run_query(lang, """
@@ -237,10 +224,7 @@ def _detect_pointer_aliasing(root: Node, lines: List[str], lang: Language) -> Li
     return findings
 
 
-# ---------------------------------------------------------------------------
 # Detection Pass 6 — Loop Structure Analysis
-# Reports loop nesting depth and flags deep nests that may limit unrolling.
-# ---------------------------------------------------------------------------
 def _detect_loop_structures(root: Node, lines: List[str], lang: Language) -> List[ASTFinding]:
     findings = []
     loops = [n for n, _ in _run_query(lang, "(for_statement) @loop", root)]
@@ -269,12 +253,9 @@ def _detect_loop_structures(root: Node, lines: List[str], lang: Language) -> Lis
     return findings
 
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 
 def _findings_to_insights(findings: List[ASTFinding], root: Node, lang: Language) -> List[str]:
-    """Converts ASTFinding objects to flat strings suitable for LLM prompt injection."""
     if not findings:
         return ["AST Analysis: No significant GPU anti-patterns detected in kernel structure."]
 
@@ -287,7 +268,7 @@ def _findings_to_insights(findings: List[ASTFinding], root: Node, lang: Language
 
 
 def _get_enclosing_function(node: Node, lines: List[str]) -> str:
-    """Walks up the AST to find the nearest enclosing function name."""
+
     current = node.parent
     while current is not None:
         if current.type in ("function_definition", "function_declarator"):
@@ -303,7 +284,7 @@ def _get_enclosing_function(node: Node, lines: List[str]) -> str:
 
 
 def _get_parent_text(node: Node, lines: List[str]) -> str:
-    """Returns the source text of a node's parent for context checks."""
+
     if node.parent and node.parent.parent:
         try:
             start = node.parent.parent.start_point[0]
@@ -315,11 +296,8 @@ def _get_parent_text(node: Node, lines: List[str]) -> str:
 
 
 def _is_simple_linear(index_text: str) -> bool:
-    """
-    Returns True if an index expression is a simple linear threadIdx offset,
-    e.g. 'threadIdx.x + blockIdx.x * blockDim.x'. Returns False for strided
-    patterns like 'threadIdx.x * stride' where stride is a non-trivial variable.
-    """
+
+
     # Strip known linear components
     linear_tokens = ["threadIdx.x", "threadIdx.y", "blockIdx.x", "blockIdx.y",
                      "blockDim.x", "blockDim.y", "+", "-", " "]

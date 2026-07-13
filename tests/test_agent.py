@@ -82,6 +82,29 @@ def test_profiling_reader_extracts_metrics(scenario):
         assert isinstance(value, float), f"{key} should parse as float"
 
 
+def test_profiling_reader_handles_long_format_csv():
+    """Regression test: a hand-typed 'metric,value' long-format CSV (one metric per row,
+    lowercase snake_case names) previously silently parsed to all zeros because the reader
+    only understood rocprof's 'wide' layout with exact-case column names. This should now
+    extract real values from either layout."""
+    long_csv = (
+        "metric,value\n"
+        "valu_util,18.3\n"
+        "salu_util,8.1\n"
+        "mem_stalled,72.4\n"
+        "max_waves_per_cu,24.0\n"
+        "l2_cache_hit,31.2\n"
+        "lds_bank_conflict,0.0\n"
+    )
+    state = {"raw_profiling_data": long_csv, "iteration_count": 0}
+
+    result = profiling_reader_node(state)
+
+    assert result["parsed_metrics"]["mem_stalled"] == pytest.approx(72.4)
+    assert result["parsed_metrics"]["valu_util"] == pytest.approx(18.3)
+    assert result["parsed_metrics"]["max_waves_per_cu"] == pytest.approx(24.0)
+
+
 @requires_corpus
 @pytest.mark.parametrize("scenario", SCENARIOS)
 def test_kernel_analyzer_runs_without_error(scenario):

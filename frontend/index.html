@@ -236,10 +236,17 @@ async function loadExample(id, btnEl){
       fetch(`../corpus/synthetic/${id}/kernel.hip`),
       fetch(`../corpus/synthetic/${id}/rocprof.csv`)
     ]);
+    if(!kernelRes.ok || !csvRes.ok){
+      throw new Error(
+        `Got HTTP ${!kernelRes.ok ? kernelRes.status : csvRes.status} loading example files. ` +
+        `Make sure you ran \`python generate_corpus.py\` and are serving this page from ` +
+        `inside the frontend/ directory (so ../corpus/synthetic/ resolves correctly).`
+      );
+    }
     document.getElementById("kernel-input").value = await kernelRes.text();
     document.getElementById("profiling-input").value = await csvRes.text();
   }catch(e){
-    document.getElementById("run-hint").textContent =
+    document.getElementById("run-hint").textContent = e.message ||
       "Couldn't load example files — serve this page from the frontend/ directory with corpus/ accessible one level up, or paste your own kernel + CSV.";
   }
 }
