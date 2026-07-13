@@ -6,6 +6,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from typing import Dict
 from src.state import KernelAgentState, OptimizedKernelOutput
+from config.settings import settings
 
 
 def kernel_rewriter_node(state: KernelAgentState) -> Dict:
@@ -25,7 +26,10 @@ def kernel_rewriter_node(state: KernelAgentState) -> Dict:
 
     # Temperature 0.2 — allow creative strategy selection (loop unrolling vs tiling)
     # but keep code generation grounded in the plan
-    llm = ChatOpenAI(model="gpt-4o", temperature=0.2)
+    llm = ChatOpenAI(
+        model=settings.rewriter_model.model,
+        temperature=settings.rewriter_model.temperature,
+    )
     structured_writer = llm.with_structured_output(OptimizedKernelOutput)
 
     prompt = ChatPromptTemplate.from_messages([

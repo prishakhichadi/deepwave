@@ -3,10 +3,25 @@ Goes far beyond token counting — detects real GPU anti-patterns: uncoalesced m
 thread divergence in conditionals, missing shared memory usage, scalar operations inside kernels,
 and pointer aliasing risks. Each finding is a typed ASTFinding object for downstream LLM nodes."""
 
-from tree_sitter import Language, Parser, Node
+from tree_sitter import Language, Parser, Node, Query, QueryCursor
 import tree_sitter_cpp
 from typing import Dict, List, Tuple
 from src.state import KernelAgentState, ASTFinding
+
+
+def _run_query(lang: Language, query_str: str, root: Node) -> List[Tuple[Node, str]]:
+    """Compatibility shim for tree-sitter >=0.22, where Language.query() was removed in
+    favor of Query(lang, query_str) + QueryCursor(query), and QueryCursor.captures()
+    returns {capture_name: [nodes]} instead of a flat [(node, capture_name), ...] list.
+    This restores the flat-list shape the detection passes below are written against."""
+    query = Query(lang, query_str)
+    cursor = QueryCursor(query)
+    captures_by_name = cursor.captures(root)  # {capture_name: [nodes]}
+    flat: List[Tuple[Node, str]] = []
+    for name, nodes in captures_by_name.items():
+        for node in nodes:
+            flat.append((node, name))
+    return flat
 
 
 def kernel_analyzer_node(state: KernelAgentState) -> Dict:
@@ -54,14 +69,13 @@ def kernel_analyzer_node(state: KernelAgentState) -> Dict:
 # ---------------------------------------------------------------------------
 def _detect_thread_divergence(root: Node, lines: List[str], lang: Language) -> List[ASTFinding]:
     findings = []
-    query = lang.query("""
+    captures = _run_query(lang, """
         (if_statement
             condition: (condition_clause
                 (binary_expression
                     left: (field_expression
                         field: (field_identifier) @field_name)))) @if_stmt
-    """)
-    captures = query.captures(root)
+    """, root)
 
     seen_scopes = set()
     for node, tag in captures:
@@ -93,12 +107,13 @@ def _detect_thread_divergence(root: Node, lines: List[str], lang: Language) -> L
 # ---------------------------------------------------------------------------
 def _detect_uncoalesced_access(root: Node, lines: List[str], lang: Language) -> List[ASTFinding]:
     findings = []
-    query = lang.query("""
-        (subscript_expression
-            index: (_) @index_expr) @array_access
-    """)
     captures_dict: dict = {}
-    for node, tag in query.captures(root):
+    # NOTE: this grammar version has no `index:` field on subscript_expression —
+    # the bracketed index lives inside an (unnamed-field) subscript_argument_list node.
+    for node, tag in _run_query(lang, """
+        (subscript_expression
+            (subscript_argument_list) @index_expr) @array_access
+    """, root):
         captures_dict.setdefault(tag, []).append(node)
 
     index_nodes = captures_dict.get("index_expr", [])
@@ -145,11 +160,8 @@ def _detect_missing_shared_memory(root: Node, lines: List[str], lang: Language) 
         return findings  # Shared memory is already used, skip this check
 
     # Check if there are loops that access pointer arguments
-    loop_query = lang.query("(for_statement) @for_loop")
-    ptr_query = lang.query("(pointer_declarator) @ptr")
-
-    loops = [n for n, _ in loop_query.captures(root)]
-    ptrs = [n for n, _ in ptr_query.captures(root)]
+    loops = [n for n, _ in _run_query(lang, "(for_statement) @for_loop", root)]
+    ptrs = [n for n, _ in _run_query(lang, "(pointer_declarator) @ptr", root)]
 
     if loops and ptrs:
         findings.append(ASTFinding(
@@ -204,8 +216,7 @@ def _detect_pointer_aliasing(root: Node, lines: List[str], lang: Language) -> Li
     findings = []
     full_source = "\n".join(lines)
 
-    query = lang.query("(pointer_declarator) @ptr")
-    ptrs = query.captures(root)
+    ptrs = _run_query(lang, "(pointer_declarator) @ptr", root)
     ptr_count = len(ptrs)
 
     has_restrict = "__restrict__" in full_source or "__restrict" in full_source
@@ -232,8 +243,7 @@ def _detect_pointer_aliasing(root: Node, lines: List[str], lang: Language) -> Li
 # ---------------------------------------------------------------------------
 def _detect_loop_structures(root: Node, lines: List[str], lang: Language) -> List[ASTFinding]:
     findings = []
-    query = lang.query("(for_statement) @loop")
-    loops = [n for n, _ in query.captures(root)]
+    loops = [n for n, _ in _run_query(lang, "(for_statement) @loop", root)]
 
     if not loops:
         return findings

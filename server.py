@@ -16,6 +16,7 @@ from fastapi.responses import StreamingResponse, JSONResponse
 
 from src.graph import deepwave_graph
 from src.state import KernelAgentState
+from config.settings import settings
 
 app = FastAPI(
     title="DEEPWAVE GPU Kernel Optimization API",
@@ -23,14 +24,22 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Allow React dev server (port 3000) and production build
+# Allow React dev server (port 3000) and production build.
+# Origins are configurable via DEEPWAVE_CORS_ORIGINS in .env.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_origins=list(settings.cors_origins),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+def _check_api_key() -> None:
+    """Fail fast on startup with a clear message if OPENAI_API_KEY isn't configured,
+    rather than letting every request 500 with an opaque LangChain error."""
+    settings.require_api_key()
 
 # ---------------------------------------------------------------------------
 # Node display metadata — maps internal node names to UI-friendly labels

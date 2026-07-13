@@ -11,14 +11,17 @@ from src.nodes.planner import optimization_planner_node
 from src.nodes.rewriter import kernel_rewriter_node
 from src.nodes.reporter import report_writer_node
 from src.nodes.critic import compiler_simulator_critic_node as critic_node
+from config.settings import settings
 
 
 # ---------------------------------------------------------------------------
 # Confidence threshold — if diagnosis confidence is below this after a pass,
 # the agent loops back to re-classify with enriched context.
+# Sourced from config/settings.py so it can be tuned via env vars without
+# touching code.
 # ---------------------------------------------------------------------------
-CONFIDENCE_THRESHOLD = 0.75
-DEFAULT_MAX_ITERATIONS = 3
+CONFIDENCE_THRESHOLD = settings.confidence_threshold
+DEFAULT_MAX_ITERATIONS = settings.max_iterations
 
 
 def should_loop(state: KernelAgentState) -> str:

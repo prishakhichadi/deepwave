@@ -6,6 +6,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from typing import Dict
 from src.state import KernelAgentState, BottleneckDiagnosis
+from config.settings import settings
 
 
 # ---------------------------------------------------------------------------
@@ -43,7 +44,10 @@ def bottleneck_classifier_node(state: KernelAgentState) -> Dict:
     enforces deterministic hardware reasoning.
     """
     # Temperature 0 — hardware diagnosis must be data-driven, not creative
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
+    llm = ChatOpenAI(
+        model=settings.classifier_model.model,
+        temperature=settings.classifier_model.temperature,
+    )
     structured_llm = llm.with_structured_output(BottleneckDiagnosis)
 
     prompt = ChatPromptTemplate.from_messages([

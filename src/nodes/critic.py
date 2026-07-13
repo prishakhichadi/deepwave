@@ -7,6 +7,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from typing import Dict
 from src.state import KernelAgentState, CriticVerdict  # Using your state blueprint structures
+from config.settings import settings
 
 def compiler_simulator_critic_node(state: KernelAgentState) -> Dict:
     """
@@ -15,7 +16,10 @@ def compiler_simulator_critic_node(state: KernelAgentState) -> Dict:
     re-generation if things look broken.
     """
 
-    llm = ChatOpenAI(model="gpt-4o", temperature=0.0)
+    llm = ChatOpenAI(
+        model=settings.critic_model.model,
+        temperature=settings.critic_model.temperature,
+    )
     structured_critic = llm.with_structured_output(CriticVerdict)
 
     prompt = ChatPromptTemplate.from_messages([

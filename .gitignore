@@ -1,0 +1,21 @@
+# Environment
+.env
+venv/
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# OS
+.DS_Store
+
+# Generated output
+report.md
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/build/

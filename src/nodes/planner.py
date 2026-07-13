@@ -7,6 +7,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from typing import Dict
 from src.state import KernelAgentState, OptimizationStrategy
+from config.settings import settings
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +59,10 @@ def optimization_planner_node(state: KernelAgentState) -> Dict:
 
     # Temperature 0.1 — slight flexibility to choose between strategies,
     # but still primarily data-driven
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.1)
+    llm = ChatOpenAI(
+        model=settings.planner_model.model,
+        temperature=settings.planner_model.temperature,
+    )
     structured_llm = llm.with_structured_output(OptimizationStrategy)
 
     prompt = ChatPromptTemplate.from_messages([

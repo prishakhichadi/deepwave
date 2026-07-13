@@ -4,6 +4,7 @@ LangGraph agent pipeline, and prints/saves the final optimization report."""
 import argparse
 from pathlib import Path
 from src.graph import deepwave_graph
+from config.settings import settings
 
 
 def load_file(path: str) -> str:
@@ -17,6 +18,8 @@ def run(kernel_path: str, profiling_path: str, output_path: str = "report.md") -
     print("\n" + "=" * 60)
     print("  DEEPWAVE — GPU Kernel Optimization Agent")
     print("=" * 60 + "\n")
+
+    settings.require_api_key()  # fail fast with a clear message, not a deep LangChain error
 
     kernel_code    = load_file(kernel_path)
     profiling_data = load_file(profiling_path)

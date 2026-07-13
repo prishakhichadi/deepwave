@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DEEPWAVE — GPU Kernel Optimization Agent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0B0E14;
+    --panel:#12161F;
+    --panel-raised:#171C27;
+    --line:#232935;
+    --text:#E4E7EC;
+    --muted:#7C8494;
+    --accent:#4FD1C5;
+    --accent-dim:#2B4A48;
+    --amber:#F2A65A;
+    --red:#E8604C;
+    --green:#6FCF97;
+    --mono:'JetBrains Mono', ui-monospace, monospace;
+    --sans:'Inter', system-ui, sans-serif;
+    --display:'Space Grotesk', var(--sans);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:var(--sans);}
+  body{min-height:100vh;}
+  ::selection{background:var(--accent-dim);color:var(--text);}
+
+  a{color:var(--accent);}
+
+  .wrap{max-width:1180px;margin:0 auto;padding:40px 24px 80px;}
+
+  header{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:8px;}
+  .logo{font-family:var(--display);font-weight:700;font-size:26px;letter-spacing:0.02em;display:flex;align-items:center;gap:10px;}
+  .logo .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent);}
+  .tagline{color:var(--muted);font-size:14px;max-width:520px;}
+  .health{font-family:var(--mono);font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;}
+  .health .pip{width:7px;height:7px;border-radius:50%;background:var(--muted);}
+  .health.ok .pip{background:var(--green);box-shadow:0 0 6px var(--green);}
+  .health.down .pip{background:var(--red);box-shadow:0 0 6px var(--red);}
+
+  section.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:22px 24px;margin-top:22px;}
+  .panel h2{font-family:var(--display);font-size:15px;font-weight:500;letter-spacing:0.04em;text-transform:uppercase;color:var(--muted);margin:0 0 16px;}
+
+  /* --- Input panel --- */
+  .examples{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px;}
+  .example-btn{font-family:var(--mono);font-size:12px;background:var(--panel-raised);border:1px solid var(--line);color:var(--text);padding:7px 12px;border-radius:6px;cursor:pointer;transition:border-color .15s;}
+  .example-btn:hover{border-color:var(--accent);}
+  .example-btn.active{border-color:var(--accent);color:var(--accent);}
+
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  @media (max-width:760px){.grid-2{grid-template-columns:1fr;}}
+
+  label.field-label{display:block;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:6px;}
+  textarea{width:100%;min-height:220px;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--text);font-family:var(--mono);font-size:12.5px;line-height:1.6;padding:12px;resize:vertical;}
+  textarea:focus{outline:none;border-color:var(--accent);}
+
+  .run-row{display:flex;align-items:center;gap:14px;margin-top:18px;}
+  button.primary{font-family:var(--sans);font-weight:600;font-size:14px;background:var(--accent);color:#08110F;border:none;padding:11px 22px;border-radius:7px;cursor:pointer;transition:filter .15s, transform .1s;}
+  button.primary:hover{filter:brightness(1.08);}
+  button.primary:active{transform:scale(0.98);}
+  button.primary:disabled{background:var(--line);color:var(--muted);cursor:not-allowed;}
+  .run-hint{font-size:12.5px;color:var(--muted);}
+  .error-banner{margin-top:14px;background:#2A1414;border:1px solid var(--red);color:#FFD3CB;font-size:13px;padding:10px 14px;border-radius:7px;font-family:var(--mono);}
+
+  /* --- Pipeline wave --- */
+  .wave-wrap{position:relative;padding:10px 0 0;}
+  svg.wave-svg{width:100%;height:150px;display:block;}
+  .wave-path{fill:none;stroke:var(--line);stroke-width:2;}
+  .wave-path.active{stroke:var(--accent-dim);}
+  .node-labels{display:grid;grid-template-columns:repeat(7,1fr);margin-top:2px;}
+  .node-label{text-align:center;font-family:var(--mono);font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.03em;padding:0 2px;transition:color .2s;}
+  .node-label.done{color:var(--accent);}
+  .node-label.current{color:var(--text);}
+  .node-desc{grid-column:1/-1;text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:10px;min-height:16px;}
+
+  /* --- Results --- */
+  .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:18px;flex-wrap:wrap;}
+  .tab{font-family:var(--mono);font-size:12.5px;color:var(--muted);background:none;border:none;padding:9px 14px;cursor:pointer;border-bottom:2px solid transparent;}
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+  .tabpage{display:none;}
+  .tabpage.active{display:block;}
+
+  .kv-grid{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:13.5px;}
+  .kv-grid dt{color:var(--muted);font-family:var(--mono);font-size:12px;}
+  .kv-grid dd{margin:0;}
+
+  .badge{display:inline-block;font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:20px;border:1px solid var(--line);}
+  .badge.high{color:var(--red);border-color:var(--red);}
+  .badge.medium{color:var(--amber);border-color:var(--amber);}
+  .badge.low{color:var(--muted);}
+  .badge.confidence{color:var(--accent);border-color:var(--accent);}
+
+  .finding{border-left:2px solid var(--line);padding:8px 14px;margin-bottom:10px;}
+  .finding.high{border-color:var(--red);}
+  .finding.medium{border-color:var(--amber);}
+  .finding.low{border-color:var(--muted);}
+  .finding .ftype{font-family:var(--mono);font-size:12.5px;font-weight:600;}
+  .finding .floc{font-size:12px;color:var(--muted);margin:2px 0 4px;}
+  .finding .fdesc{font-size:13px;color:var(--text);line-height:1.5;}
+
+  .code-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  @media (max-width:760px){.code-cols{grid-template-columns:1fr;}}
+  pre.code{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:14px;font-family:var(--mono);font-size:12px;line-height:1.6;overflow-x:auto;white-space:pre;max-height:420px;}
+  .code-heading{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted);margin-bottom:6px;}
+
+  .report-md{font-size:13.5px;line-height:1.7;white-space:pre-wrap;font-family:var(--mono);}
+
+  .placeholder{color:var(--muted);font-size:13.5px;text-align:center;padding:40px 0;}
+
+  footer{margin-top:40px;text-align:center;color:var(--muted);font-size:12px;font-family:var(--mono);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <div class="logo"><span class="dot"></span>DEEPWAVE</div>
+      <div class="tagline">Diagnoses why a GPU kernel is slow and rewrites it — with the reasoning shown, not just the numbers.</div>
+    </div>
+    <div class="health" id="health"><span class="pip"></span><span id="health-text">checking backend…</span></div>
+  </header>
+
+  <section class="panel">
+    <h2>Input</h2>
+    <div class="examples" id="examples"></div>
+    <div class="grid-2">
+      <div>
+        <label class="field-label" for="kernel-input">Kernel source (.hip / .cu)</label>
+        <textarea id="kernel-input" placeholder="__global__ void myKernel(float* a, float* b) { ... }" spellcheck="false"></textarea>
+      </div>
+      <div>
+        <label class="field-label" for="profiling-input">Profiling output (rocprof / omniperf CSV)</label>
+        <textarea id="profiling-input" placeholder="metric,value&#10;valu_util,18.3&#10;mem_stalled,72.4" spellcheck="false"></textarea>
+      </div>
+    </div>
+    <div class="run-row">
+      <button class="primary" id="run-btn">Run analysis</button>
+      <span class="run-hint" id="run-hint">Paste a kernel + profiling CSV, or load a synthetic example above.</span>
+    </div>
+    <div class="error-banner" id="error-banner" style="display:none;"></div>
+  </section>
+
+  <section class="panel" id="pipeline-panel" style="display:none;">
+    <h2>Reasoning loop</h2>
+    <div class="wave-wrap">
+      <svg class="wave-svg" viewBox="0 0 980 150" preserveAspectRatio="none">
+        <path id="wave-path-bg" class="wave-path" d="" />
+        <path id="wave-path-active" class="wave-path active" d="" stroke-dasharray="1" stroke-dashoffset="1" />
+        <g id="wave-nodes"></g>
+      </svg>
+      <div class="node-labels" id="node-labels"></div>
+      <div class="node-desc" id="node-desc">&nbsp;</div>
+    </div>
+  </section>
+
+  <section class="panel" id="results-panel" style="display:none;">
+    <h2>Results</h2>
+    <div class="tabs">
+      <button class="tab active" data-tab="diagnosis">Diagnosis</button>
+      <button class="tab" data-tab="findings">Findings</button>
+      <button class="tab" data-tab="plan">Plan</button>
+      <button class="tab" data-tab="code">Code</button>
+      <button class="tab" data-tab="report">Report</button>
+    </div>
+
+    <div class="tabpage active" id="tab-diagnosis"><div class="placeholder">Waiting for results…</div></div>
+    <div class="tabpage" id="tab-findings"><div class="placeholder">Waiting for results…</div></div>
+    <div class="tabpage" id="tab-plan"><div class="placeholder">Waiting for results…</div></div>
+    <div class="tabpage" id="tab-code"><div class="placeholder">Waiting for results…</div></div>
+    <div class="tabpage" id="tab-report"><div class="placeholder">Waiting for results…</div></div>
+  </section>
+
+  <footer>DEEPWAVE frontend · talks to the FastAPI backend at <span id="api-base-label"></span></footer>
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+const API_BASE = (window.DEEPWAVE_API_BASE) || "http://localhost:8000";
+document.getElementById("api-base-label").textContent = API_BASE;
+
+const NODE_ORDER = ["reader","analyzer","classifier","planner","rewriter","critic","reporter"];
+const NODE_LABELS = {
+  reader:"Reader", analyzer:"Analyzer", classifier:"Classifier",
+  planner:"Planner", rewriter:"Rewriter", critic:"Critic", reporter:"Reporter"
+};
+
+const EXAMPLES = [
+  {id:"memory_bandwidth_bound", label:"Memory bandwidth bound"},
+  {id:"compute_bound", label:"Compute bound"},
+  {id:"occupancy_limited", label:"Occupancy limited"},
+  {id:"latency_bound", label:"Latency bound"},
+];
+
+// ---------------------------------------------------------------------------
+// Health check
+// ---------------------------------------------------------------------------
+async function checkHealth(){
+  const el = document.getElementById("health");
+  const txt = document.getElementById("health-text");
+  try{
+    const res = await fetch(`${API_BASE}/health`);
+    if(!res.ok) throw new Error();
+    el.classList.add("ok");
+    txt.textContent = "backend online";
+  }catch(e){
+    el.classList.add("down");
+    txt.textContent = "backend unreachable — is `uvicorn server:app` running?";
+  }
+}
+checkHealth();
+
+// ---------------------------------------------------------------------------
+// Example loader — fetches synthetic corpus files directly (served alongside
+// this page, or edit EXAMPLE_BASE_PATH to point at your corpus/synthetic dir).
+// ---------------------------------------------------------------------------
+const exampleBar = document.getElementById("examples");
+EXAMPLES.forEach(ex => {
+  const btn = document.createElement("button");
+  btn.className = "example-btn";
+  btn.textContent = ex.label;
+  btn.onclick = () => loadExample(ex.id, btn);
+  exampleBar.appendChild(btn);
+});
+
+async function loadExample(id, btnEl){
+  document.querySelectorAll(".example-btn").forEach(b => b.classList.remove("active"));
+  btnEl.classList.add("active");
+  try{
+    const [kernelRes, csvRes] = await Promise.all([
+      fetch(`../corpus/synthetic/${id}/kernel.hip`),
+      fetch(`../corpus/synthetic/${id}/rocprof.csv`)
+    ]);
+    document.getElementById("kernel-input").value = await kernelRes.text();
+    document.getElementById("profiling-input").value = await csvRes.text();
+  }catch(e){
+    document.getElementById("run-hint").textContent =
+      "Couldn't load example files — serve this page from the frontend/ directory with corpus/ accessible one level up, or paste your own kernel + CSV.";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Wave pipeline visualization
+// ---------------------------------------------------------------------------
+const svgNS = "http://www.w3.org/2000/svg";
+const W = 980, H = 150, MID = 75, AMP = 34;
+function waveY(x){ return MID + AMP * Math.sin((x / W) * Math.PI * 2.2); }
+function buildWavePath(){
+  let d = `M 0 ${waveY(0).toFixed(1)}`;
+  for(let x = 10; x <= W; x += 10){ d += ` L ${x} ${waveY(x).toFixed(1)}`; }
+  return d;
+}
+document.getElementById("wave-path-bg").setAttribute("d", buildWavePath());
+document.getElementById("wave-path-active").setAttribute("d", buildWavePath());
+
+const nodeLabelsEl = document.getElementById("node-labels");
+const waveNodesG = document.getElementById("wave-nodes");
+NODE_ORDER.forEach((name, i) => {
+  const x = (W / (NODE_ORDER.length - 1)) * i;
+  const y = waveY(x);
+  const circle = document.createElementNS(svgNS, "circle");
+  circle.setAttribute("cx", x); circle.setAttribute("cy", y); circle.setAttribute("r", 6);
+  circle.setAttribute("fill", "#12161F"); circle.setAttribute("stroke", "#232935"); circle.setAttribute("stroke-width", "2");
+  circle.setAttribute("id", `node-circle-${name}`);
+  waveNodesG.appendChild(circle);
+
+  const label = document.createElement("div");
+  label.className = "node-label"; label.id = `node-label-${name}`;
+  label.textContent = NODE_LABELS[name];
+  nodeLabelsEl.appendChild(label);
+});
+
+function setNodeState(name, state){ // state: 'done' | 'current'
+  const circle = document.getElementById(`node-circle-${name}`);
+  const label = document.getElementById(`node-label-${name}`);
+  label.classList.remove("done","current");
+  if(state === "done"){
+    circle.setAttribute("fill", "#4FD1C5"); circle.setAttribute("stroke", "#4FD1C5");
+    label.classList.add("done");
+  } else if(state === "current"){
+    circle.setAttribute("stroke", "#4FD1C5");
+    label.classList.add("current");
+  }
+}
+
+function resetPipeline(){
+  NODE_ORDER.forEach(name => {
+    const circle = document.getElementById(`node-circle-${name}`);
+    circle.setAttribute("fill", "#12161F"); circle.setAttribute("stroke", "#232935");
+    document.getElementById(`node-label-${name}`).classList.remove("done","current");
+  });
+  document.getElementById("node-desc").textContent = "\u00A0";
+  const activePath = document.getElementById("wave-path-active");
+  activePath.style.strokeDasharray = "1";
+  activePath.style.strokeDashoffset = "1";
+}
+
+// ---------------------------------------------------------------------------
+// SSE parsing over fetch (EventSource can't POST, so we parse manually)
+// ---------------------------------------------------------------------------
+function parseSSEBlock(block){
+  let eventType = "message", data = "";
+  for(const line of block.split("\n")){
+    if(line.startsWith("event:")) eventType = line.slice(6).trim();
+    else if(line.startsWith("data:")) data += line.slice(5).trim();
+  }
+  return {eventType, data};
+}
+
+async function runAnalysis(){
+  const kernelCode = document.getElementById("kernel-input").value.trim();
+  const profilingData = document.getElementById("profiling-input").value.trim();
+  const errorBanner = document.getElementById("error-banner");
+  const runBtn = document.getElementById("run-btn");
+  errorBanner.style.display = "none";
+
+  if(!kernelCode || !profilingData){
+    errorBanner.textContent = "Both a kernel and a profiling CSV are required.";
+    errorBanner.style.display = "block";
+    return;
+  }
+
+  runBtn.disabled = true;
+  runBtn.textContent = "Running…";
+  document.getElementById("pipeline-panel").style.display = "block";
+  document.getElementById("results-panel").style.display = "none";
+  resetPipeline();
+
+  let completedCount = 0;
+
+  try{
+    const form = new FormData();
+    form.append("kernel_code", kernelCode);
+    form.append("profiling_data", profilingData);
+
+    const res = await fetch(`${API_BASE}/analyze/text`, { method: "POST", body: form });
+    if(!res.ok){
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || `Server returned ${res.status}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while(true){
+      const {value, done} = await reader.read();
+      if(done) break;
+      buffer += decoder.decode(value, {stream:true});
+
+      let idx;
+      while((idx = buffer.indexOf("\n\n")) !== -1){
+        const block = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        const {eventType, data} = parseSSEBlock(block);
+        if(!data) continue;
+        const payload = JSON.parse(data);
+
+        if(eventType === "node_complete"){
+          setNodeState(payload.node, "done");
+          completedCount++;
+          const activePath = document.getElementById("wave-path-active");
+          const frac = completedCount / NODE_ORDER.length;
+          const pathLen = document.getElementById("wave-path-bg").getTotalLength();
+          activePath.style.strokeDasharray = pathLen;
+          activePath.style.strokeDashoffset = pathLen * (1 - frac);
+          document.getElementById("node-desc").textContent = payload.description || "";
+          const nextIdx = NODE_ORDER.indexOf(payload.node) + 1;
+          if(nextIdx < NODE_ORDER.length) setNodeState(NODE_ORDER[nextIdx], "current");
+        } else if(eventType === "pipeline_complete"){
+          renderResults(payload);
+          document.getElementById("results-panel").style.display = "block";
+        } else if(eventType === "pipeline_error"){
+          throw new Error(payload.message || "Pipeline failed.");
+        }
+      }
+    }
+  }catch(e){
+    errorBanner.textContent = e.message || String(e);
+    errorBanner.style.display = "block";
+  }finally{
+    runBtn.disabled = false;
+    runBtn.textContent = "Run analysis";
+  }
+}
+
+document.getElementById("run-btn").addEventListener("click", runAnalysis);
+
+// ---------------------------------------------------------------------------
+// Results rendering
+// ---------------------------------------------------------------------------
+document.querySelectorAll(".tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    document.querySelectorAll(".tabpage").forEach(p => p.classList.remove("active"));
+    tab.classList.add("active");
+    document.getElementById(`tab-${tab.dataset.tab}`).classList.add("active");
+  });
+});
+
+function esc(s){
+  const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML;
+}
+
+function renderResults(payload){
+  // --- Diagnosis tab ---
+  const diag = payload.diagnosis || {};
+  document.getElementById("tab-diagnosis").innerHTML = `
+    <dl class="kv-grid">
+      <dt>Bottleneck</dt><dd><strong>${esc(diag.bottleneck_type || "—")}</strong></dd>
+      <dt>Confidence</dt><dd><span class="badge confidence">${diag.confidence_score != null ? (diag.confidence_score*100).toFixed(0)+"%" : "—"}</span></dd>
+      <dt>Secondary</dt><dd>${esc(diag.secondary || "none")}</dd>
+      <dt>Evidence</dt><dd>${(diag.evidence||[]).map(e=>`<div>&bull; ${esc(e)}</div>`).join("") || "—"}</dd>
+      <dt>Metrics</dt><dd style="font-family:var(--mono);font-size:12px;">${Object.entries(payload.parsed_metrics||{}).map(([k,v])=>`${esc(k)}=${v}`).join(" &nbsp;·&nbsp; ") || "—"}</dd>
+    </dl>`;
+
+  // --- Findings tab ---
+  const findings = payload.ast_findings || [];
+  document.getElementById("tab-findings").innerHTML = findings.length ? findings.map(f => `
+    <div class="finding ${f.severity}">
+      <div class="ftype">${esc(f.type)} <span class="badge ${f.severity}">${esc(f.severity)}</span></div>
+      <div class="floc">${esc(f.location)}</div>
+      <div class="fdesc">${esc(f.description)}</div>
+    </div>`).join("") : `<div class="placeholder">No structural findings.</div>`;
+
+  // --- Plan tab ---
+  const plan = payload.optimization_plan || {};
+  document.getElementById("tab-plan").innerHTML = `
+    <dl class="kv-grid">
+      <dt>Strategy</dt><dd><strong>${esc(plan.strategy_name || "—")}</strong></dd>
+      <dt>Expected impact</dt><dd><span class="badge ${plan.expected_impact||'low'}">${esc(plan.expected_impact || "—")}</span></dd>
+      <dt>Target scopes</dt><dd>${(plan.target_scopes||[]).map(esc).join(", ") || "—"}</dd>
+      <dt>Rationale</dt><dd>${esc(plan.rationale || "—")}</dd>
+      <dt>AMD hints</dt><dd>${(plan.amd_hints||[]).map(h=>`<div>&bull; ${esc(h)}</div>`).join("") || "—"}</dd>
+    </dl>`;
+
+  // --- Code tab ---
+  document.getElementById("tab-code").innerHTML = `
+    <div class="code-cols">
+      <div><div class="code-heading">Original</div><pre class="code">${esc(payload.original_code)}</pre></div>
+      <div><div class="code-heading">Optimized</div><pre class="code">${esc(payload.optimized_code)}</pre></div>
+    </div>
+    <p style="font-size:13px;color:var(--muted);margin-top:14px;">${esc(payload.theoretical_improvement)}</p>`;
+
+  // --- Report tab ---
+  document.getElementById("tab-report").innerHTML =
+    `<div class="report-md">${esc(payload.final_report) || "No report generated."}</div>`;
+}
+</script>
+</body>
+</html>
