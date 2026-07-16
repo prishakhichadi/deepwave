@@ -23,7 +23,7 @@ def report_writer_node(state: KernelAgentState) -> Dict:
     theoretical     = state.get("theoretical_improvement", "Not estimated.")
     iteration       = state.get("iteration_count", 1)
 
-    # --- Code diff ---
+
     diff_lines = list(difflib.unified_diff(
         original_code.splitlines(keepends=True),
         optimized_code.splitlines(keepends=True),
@@ -33,7 +33,7 @@ def report_writer_node(state: KernelAgentState) -> Dict:
     ))
     visual_diff = "\n".join(diff_lines)
 
-    # --- Build report ---
+
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M UTC")
 
     report = f"# DEEPWAVE: GPU Kernel Optimization Report\n"
@@ -53,7 +53,35 @@ def report_writer_node(state: KernelAgentState) -> Dict:
     else:
         report += "*No diagnosis available.*\n\n"
 
-    # Raw metrics table
+
+    severity_label = state.get("severity_label")
+    severity_score = state.get("severity_score")
+    severity_detail = state.get("severity_detail")
+    if severity_label and severity_label != "unscored":
+        severity_icon = {
+            "borderline": "🟢", "moderate": "🟡", "severe": "🟠", "critical": "🔴",
+        }.get(severity_label, "")
+        report += f"### Severity {severity_icon}\n\n"
+        report += f"**{severity_label.upper()}** (score: {severity_score:.2f}/1.00)\n\n"
+        report += f"{severity_detail}\n\n"
+
+    
+    
+    consistency = state.get("evidence_consistency")
+    consistency_detail = state.get("evidence_consistency_detail")
+    if consistency:
+        icon = {"confirmed": "✅", "conflicting": "⚠️", "metrics_only": "ℹ️"}.get(consistency, "")
+        label = {
+            "confirmed": "Confirmed by structural analysis",
+            "conflicting": "Conflicting evidence — review recommended",
+            "metrics_only": "Metrics-only — no structural corroboration",
+        }.get(consistency, consistency)
+        report += f"### Evidence Cross-Validation {icon}\n\n"
+        report += f"**{label}**\n\n"
+        report += f"{consistency_detail}\n\n"
+
+
+
     if parsed_metrics:
         report += "### Raw Hardware Metrics\n\n"
         report += "| Metric | Value | AMD MI300X Threshold |\n|---|---|---|\n"
@@ -71,7 +99,8 @@ def report_writer_node(state: KernelAgentState) -> Dict:
                 report += f"| `{key}` | `{val:.4f}` | {threshold} |\n"
         report += "\n"
 
-    # Evidence list
+  
+  
     if diagnosis and diagnosis.evidence:
         report += "### Diagnostic Evidence\n\n"
         for item in diagnosis.evidence:

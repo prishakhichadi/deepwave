@@ -30,7 +30,6 @@ def kernel_analyzer_node(state: KernelAgentState) -> Dict:
 
     findings: List[ASTFinding] = []
 
-    # Run all detection passes
     findings += _detect_thread_divergence(root_node, code_lines, CPP_LANGUAGE)
     findings += _detect_uncoalesced_access(root_node, code_lines, CPP_LANGUAGE)
     findings += _detect_missing_shared_memory(root_node, code_lines, CPP_LANGUAGE)
@@ -38,7 +37,6 @@ def kernel_analyzer_node(state: KernelAgentState) -> Dict:
     findings += _detect_pointer_aliasing(root_node, code_lines, CPP_LANGUAGE)
     findings += _detect_loop_structures(root_node, code_lines, CPP_LANGUAGE)
 
-    # Build flat insight strings for LLM prompt injection (rewriter / classifier)
     insights = _findings_to_insights(findings, root_node, CPP_LANGUAGE)
 
     print(f"[kernel_analyzer] {len(findings)} structural findings across {len(insights)} insight lines.")
@@ -52,7 +50,6 @@ def kernel_analyzer_node(state: KernelAgentState) -> Dict:
 
 
 # Detection Pass 1 — Thread Divergence
-# threadIdx — classic cause of wavefront serialization on AMD hardware.
 
 def _detect_thread_divergence(root: Node, lines: List[str], lang: Language) -> List[ASTFinding]:
     findings = []
@@ -86,17 +83,12 @@ def _detect_thread_divergence(root: Node, lines: List[str], lang: Language) -> L
     return findings
 
 
-# ---------------------------------------------------------------------------
 # Detection Pass 2 — Uncoalesced Memory Access
-# Detects array subscript patterns where the index is not a simple linear
-# threadIdx expression — a strong signal of non-sequential (strided/random)
-# global memory access which destroys memory bandwidth on MI300X.
-# ---------------------------------------------------------------------------
+
 def _detect_uncoalesced_access(root: Node, lines: List[str], lang: Language) -> List[ASTFinding]:
     findings = []
     captures_dict: dict = {}
-    # NOTE: this grammar version has no `index:` field on subscript_expression —
-    # the bracketed index lives inside an (unnamed-field) subscript_argument_list node.
+    
     for node, tag in _run_query(lang, """
         (subscript_expression
             (subscript_argument_list) @index_expr) @array_access
@@ -108,8 +100,7 @@ def _detect_uncoalesced_access(root: Node, lines: List[str], lang: Language) -> 
 
     for node in index_nodes:
         index_text = node.text.decode("utf8") if node.text else ""
-        # Non-linear index heuristic: contains multiplication or division by non-1 values
-        # AND references threadIdx — this is a strided access pattern
+        
         if ("threadIdx" in index_text or "blockIdx" in index_text):
             if any(op in index_text for op in ["* ", " *", "/ ", " /"]):
                 if not _is_simple_linear(index_text):
@@ -131,22 +122,20 @@ def _detect_uncoalesced_access(root: Node, lines: List[str], lang: Language) -> 
     return findings
 
 
-# ---------------------------------------------------------------------------
+
 # Detection Pass 3 — Missing Shared Memory (LDS)
-# Detects kernels that read from global pointer arguments in loops without
-# any __shared__ declarations — missed opportunity for LDS reuse on AMD.
-# ---------------------------------------------------------------------------
+
 def _detect_missing_shared_memory(root: Node, lines: List[str], lang: Language) -> List[ASTFinding]:
     findings = []
 
-    # Check if __shared__ already appears anywhere in the source
+
     full_source = "\n".join(lines)
     has_shared = "__shared__" in full_source or "__local" in full_source
 
     if has_shared:
-        return findings  # Shared memory is already used, skip this check
+        return findings  
 
-    # Check if there are loops that access pointer arguments
+
     loops = [n for n, _ in _run_query(lang, "(for_statement) @for_loop", root)]
     ptrs = [n for n, _ in _run_query(lang, "(pointer_declarator) @ptr", root)]
 
@@ -165,17 +154,14 @@ def _detect_missing_shared_memory(root: Node, lines: List[str], lang: Language) 
     return findings
 
 
-# ---------------------------------------------------------------------------
+
 # Detection Pass 4 — Scalar Operations Inside Kernel
-# SALU instructions run on the scalar unit (1 per wavefront) vs VALU (64-wide).
-# High SALU usage in a loop body hurts parallelism.
-# ---------------------------------------------------------------------------
+
 def _detect_scalar_ops_in_kernel(root: Node, lines: List[str], lang: Language) -> List[ASTFinding]:
     findings = []
     full_source = "\n".join(lines)
 
-    # Heuristic: integer division or modulo inside kernel body = likely scalar path
-    # These often get lowered to SALU or expensive VALU sequences
+
     scalar_indicators = ["% blockDim", "/ blockDim", "% gridDim", "/ gridDim"]
     hits = [s for s in scalar_indicators if s in full_source]
 
@@ -194,11 +180,9 @@ def _detect_scalar_ops_in_kernel(root: Node, lines: List[str], lang: Language) -
     return findings
 
 
-# ---------------------------------------------------------------------------
+
 # Detection Pass 5 — Pointer Aliasing Risk
-# Multiple pointer parameters without __restrict__ prevent the compiler from
-# vectorizing loads — a subtle but real performance issue.
-# ---------------------------------------------------------------------------
+
 def _detect_pointer_aliasing(root: Node, lines: List[str], lang: Language) -> List[ASTFinding]:
     findings = []
     full_source = "\n".join(lines)
@@ -225,6 +209,7 @@ def _detect_pointer_aliasing(root: Node, lines: List[str], lang: Language) -> Li
 
 
 # Detection Pass 6 — Loop Structure Analysis
+
 def _detect_loop_structures(root: Node, lines: List[str], lang: Language) -> List[ASTFinding]:
     findings = []
     loops = [n for n, _ in _run_query(lang, "(for_statement) @loop", root)]
@@ -254,6 +239,7 @@ def _detect_loop_structures(root: Node, lines: List[str], lang: Language) -> Lis
 
 
 # Helpers
+
 
 def _findings_to_insights(findings: List[ASTFinding], root: Node, lang: Language) -> List[str]:
     if not findings:

@@ -1,8 +1,3 @@
-"""Planning node — bridges the bottleneck diagnosis to the rewriter by selecting
-a concrete, hardware-grounded optimization strategy. This is the node that was
-missing from the original pipeline. It prevents the rewriter from applying
-generic optimizations and instead forces a targeted, diagnosis-driven plan."""
-
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from typing import Dict
@@ -10,12 +5,7 @@ from src.state import KernelAgentState, OptimizationStrategy
 from config.settings import settings
 
 
-# ---------------------------------------------------------------------------
-# Strategy playbook: maps each bottleneck type to the ranked list of
-# AMD-specific optimization strategies the planner should consider.
-# This is injected into the prompt so the LLM reasons within a structured
-# solution space rather than free-associating generic GPU advice.
-# ---------------------------------------------------------------------------
+
 AMD_STRATEGY_PLAYBOOK = """
 AMD MI300X Optimization Strategy Playbook:
 -------------------------------------------
@@ -57,8 +47,8 @@ def optimization_planner_node(state: KernelAgentState) -> Dict:
         raise ValueError("optimization_planner_node requires a diagnosis in state. "
                          "Run bottleneck_classifier_node first.")
 
-    # Temperature 0.1 — slight flexibility to choose between strategies,
-    # but still primarily data-driven
+
+
     llm = settings.build_llm(settings.planner_model)
     structured_llm = llm.with_structured_output(
         OptimizationStrategy, method=settings.structured_output_method
@@ -76,7 +66,19 @@ def optimization_planner_node(state: KernelAgentState) -> Dict:
             "3. Your rationale must cite specific hardware facts: cache line sizes, wavefront "
             "width, LDS capacity, register file limits.\n"
             "4. AMD MI300X specifics: wavefront=64 threads, LDS=64KB/CU, L2=256MB, "
-            "max 32 waves/CU, 512 VGPRs/wavefront.\n\n"
+            "max 32 waves/CU, 512 VGPRs/wavefront.\n"
+            "5. SCALE YOUR RESPONSE TO SEVERITY — do not apply the same fix regardless of how "
+            "far past the threshold the metric is:\n"
+            "   - 'borderline'/'moderate' severity: apply the SINGLE lowest-risk strategy from "
+            "the playbook that addresses the bottleneck (e.g. just a coalescing fix). Set "
+            "expected_impact to 'low' or 'medium'. Note in the rationale that this is a "
+            "conservative, minimal-risk fix appropriate for a borderline case.\n"
+            "   - 'severe' severity: combine 2 strategies from the playbook for a stronger fix. "
+            "Set expected_impact to 'medium' or 'high'.\n"
+            "   - 'critical' severity: apply the most aggressive combination available in the "
+            "playbook (e.g. shared memory tiling AND vectorized loads together for memory-bound "
+            "cases). Set expected_impact to 'high' and say explicitly in the rationale that the "
+            "severity justifies a more invasive rewrite.\n\n"
             f"{AMD_STRATEGY_PLAYBOOK}"
         ),
         (
@@ -86,11 +88,15 @@ def optimization_planner_node(state: KernelAgentState) -> Dict:
             "Confidence: {confidence}\n"
             "Evidence: {evidence}\n"
             "Secondary: {secondary}\n\n"
+            "--- SEVERITY ---\n"
+            "Severity: {severity_label} (score {severity_score})\n"
+            "{severity_detail}\n\n"
             "--- AST STRUCTURAL FINDINGS ---\n"
             "{ast_insights}\n\n"
             "--- KERNEL SOURCE (for scope identification) ---\n"
             "{source_code}\n\n"
-            "Select the optimal strategy and identify exactly which scopes to target."
+            "Select the optimal strategy — scaled to the severity above — and identify exactly "
+            "which scopes to target."
         )
     ])
 
@@ -103,6 +109,9 @@ def optimization_planner_node(state: KernelAgentState) -> Dict:
         "confidence": f"{diagnosis.confidence_score:.2f}",
         "evidence": "\n".join(f"  - {e}" for e in diagnosis.evidence),
         "secondary": diagnosis.secondary_bottleneck or "None",
+        "severity_label": state.get("severity_label", "unscored"),
+        "severity_score": f"{state.get('severity_score', 0.0):.2f}",
+        "severity_detail": state.get("severity_detail", ""),
         "ast_insights": "\n".join(ast_insights),
         "source_code": state.get("raw_kernel_code", ""),
     })

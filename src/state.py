@@ -1,14 +1,9 @@
-"""Shared LangGraph state and Pydantic schemas for the DEEPWAVE GPU kernel optimization agent.
-Every node takes this state as input and returns a partial dict to merge back into it."""
-
 from typing import Dict, List, Optional, Literal
 from typing_extensions import TypedDict
 from pydantic import BaseModel, Field
 
 
-# ---------------------------------------------------------------------------
-# 1. Pydantic Schemas for Structured LLM Outputs
-# ---------------------------------------------------------------------------
+
 
 class BottleneckDiagnosis(BaseModel):
     """Structured response schema for hardware bottleneck classification."""
@@ -79,38 +74,44 @@ class OptimizedKernelOutput(BaseModel):
     )
 
 
-# ---------------------------------------------------------------------------
-# 2. Main LangGraph State Definition
-# ---------------------------------------------------------------------------
 
 class KernelAgentState(TypedDict):
     """The shared state dictionary updated dynamically across graph cycles."""
 
-    # --- Source Inputs ---
-    raw_kernel_code: str           # Raw .hip / .cu source as a string
-    raw_profiling_data: str        # Raw rocprof/omniperf CSV as a string
 
-    # --- Parsed Hardware Analytics ---
-    parsed_metrics: Dict[str, float]   # Normalized metric map from reader node
-    ast_insights: List[str]            # Legacy flat string list (kept for compatibility)
-    ast_findings: List[ASTFinding]     # Rich structured findings from improved analyzer
+    raw_kernel_code: str         
+    raw_profiling_data: str      
 
-    # --- LLM Inference Objects ---
+
+    parsed_metrics: Dict[str, float]   
+    ast_insights: List[str]           
+    ast_findings: List[ASTFinding]   
+
+
     diagnosis: Optional[BottleneckDiagnosis]
     optimization_plan: Optional[OptimizationStrategy]
 
-    # --- Output Artifacts ---
+   
+    severity_label: Optional[str]    # "borderline" | "moderate" | "severe" | "critical" | "unscored"
+    severity_score: Optional[float]  # 0.0-1.0
+    severity_detail: Optional[str]
+
+  
+    evidence_consistency: Optional[str]         
+    evidence_consistency_detail: Optional[str]   
+
+
     optimized_kernel_code: Optional[str]
     annotations: Optional[Dict[str, str]]
     theoretical_improvement: Optional[str]
     final_report: Optional[str]
 
-    # --- Cyclic Flow Control ---
-    iteration_count: int
-    max_iterations: int            # Guard rail to prevent infinite loops (default: 3)
 
-    verification_status: Optional[str]   # "passed" or "failed_retry"
-    critic_feedback: Optional[str]       # Human-readable fault + remedy text
+    iteration_count: int
+    max_iterations: int            
+
+    verification_status: Optional[str]   
+    critic_feedback: Optional[str]      
 
 
 

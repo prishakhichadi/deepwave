@@ -1,5 +1,5 @@
 """
-Test suite for DEEPWAVE.
+Tests for DEEPWAVE.
 
 Split into two tiers:
   1. Deterministic tests (reader, analyzer, graph structure) — no API key needed,
@@ -15,11 +15,14 @@ from pathlib import Path
 
 import pytest
 
-# Make the project root importable when running `pytest` from anywhere.
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.nodes.reader import profiling_reader_node
 from src.nodes.analyzer import kernel_analyzer_node
+from src.nodes.evidence_validator import cross_validate_diagnosis
+from src.nodes.severity import classify_severity
+from src.state import BottleneckDiagnosis, ASTFinding
 from src.graph import deepwave_graph
 from config.settings import settings
 
@@ -53,9 +56,7 @@ def _load_scenario(name: str):
     return kernel, profiling
 
 
-# ---------------------------------------------------------------------------
 # Tier 1: deterministic, no API key required
-# ---------------------------------------------------------------------------
 
 def test_graph_compiles():
     """The LangGraph state machine should build without hitting the network."""
@@ -135,9 +136,7 @@ def test_compute_bound_scenario_flags_missing_shared_memory():
     assert "missing_shared_memory" in finding_types
 
 
-# ---------------------------------------------------------------------------
-# Tier 2: LLM-backed, requires OPENAI_API_KEY
-# ---------------------------------------------------------------------------
+# Tier 2: LLM-backed, requires OPENAI_API_KEY, now groq lol
 
 @requires_llm
 @requires_corpus
@@ -158,3 +157,93 @@ def test_full_graph_invoke_memory_bandwidth_bound():
     assert final_state["diagnosis"].bottleneck_type == "Memory Bandwidth Bound"
     assert final_state.get("optimized_kernel_code")
     assert final_state.get("final_report")
+
+
+# Evidence cross-validation- deterministic, no LLM/API key required
+
+def _diagnosis(bottleneck_type, confidence=0.9):
+    return BottleneckDiagnosis(
+        bottleneck_type=bottleneck_type, confidence_score=confidence, evidence=["test evidence"]
+    )
+
+
+def _finding(finding_type):
+    return ASTFinding(
+        finding_type=finding_type, location="test_fn", description="test", severity="high"
+    )
+
+
+def test_cross_validation_confirms_when_ast_supports_diagnosis():
+    diagnosis = _diagnosis("Memory Bandwidth Bound")
+    findings = [_finding("uncoalesced_memory_access")]
+
+    status, detail = cross_validate_diagnosis(diagnosis, findings)
+
+    assert status == "confirmed"
+    assert "uncoalesced_memory_access" in detail
+
+
+def test_cross_validation_flags_conflict():
+    diagnosis = _diagnosis("Compute Bound")
+    findings = [_finding("uncoalesced_memory_access")]  # points to memory-bound instead
+
+    status, detail = cross_validate_diagnosis(diagnosis, findings)
+
+    assert status == "conflicting"
+    assert "review" in detail.lower()
+
+
+def test_cross_validation_metrics_only_when_no_corroborating_finding():
+    diagnosis = _diagnosis("Occupancy Limited")
+    findings = [_finding("loop_structure")]  # unrelated to occupancy
+
+    status, detail = cross_validate_diagnosis(diagnosis, findings)
+
+    assert status == "metrics_only"
+
+
+def test_cross_validation_metrics_only_when_no_findings_at_all():
+    diagnosis = _diagnosis("Latency Bound")
+
+    status, detail = cross_validate_diagnosis(diagnosis, [])
+
+    assert status == "metrics_only"
+
+
+
+# Severity scoring: deterministic, no LLM/API key required
+
+
+def test_severity_distinguishes_borderline_from_critical_at_same_bottleneck():
+    """The exact case the user asked about: mem_stalled=51% and mem_stalled=95% both
+    diagnose as 'Memory Bandwidth Bound', but should NOT be treated identically."""
+    borderline_label, borderline_score, _ = classify_severity(
+        "Memory Bandwidth Bound", {"mem_stalled": 51.0}
+    )
+    critical_label, critical_score, _ = classify_severity(
+        "Memory Bandwidth Bound", {"mem_stalled": 95.0}
+    )
+
+    assert borderline_label != critical_label
+    assert critical_score > borderline_score
+    assert borderline_label == "borderline"
+    assert critical_label == "critical"
+
+
+def test_severity_occupancy_limited_lower_is_worse():
+    """Occupancy is inverted: FEWER waves per CU is worse, not more."""
+    near_threshold_label, _, _ = classify_severity(
+        "Occupancy Limited", {"max_waves_per_cu": 15.0}
+    )
+    very_low_label, _, _ = classify_severity(
+        "Occupancy Limited", {"max_waves_per_cu": 2.0}
+    )
+
+    assert near_threshold_label == "borderline"
+    assert very_low_label == "critical"
+
+
+def test_severity_unscored_when_metric_missing():
+    label, score, _ = classify_severity("Memory Bandwidth Bound", {})
+    assert label == "unscored"
+    assert score == 0.0

@@ -1,10 +1,3 @@
-"""DEEPWAVE FastAPI backend. Exposes two endpoints:
-  POST /analyze        — runs the full LangGraph pipeline, streams node progress via SSE
-  GET  /health         — simple health check
-
-Streaming lets the React frontend show live node-by-node progress as the agent reasons,
-which is the key demo moment for the presentation."""
-
 import json
 import asyncio
 from typing import AsyncGenerator
@@ -24,11 +17,11 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Allow React dev server (port 3000) and production build.
-# Origins are configurable via DEEPWAVE_CORS_ORIGINS in .env.
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.cors_origins),
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -41,9 +34,7 @@ def _check_api_key() -> None:
     rather than letting every request 500 with an opaque LangChain error."""
     settings.require_api_key()
 
-# ---------------------------------------------------------------------------
-# Node display metadata — maps internal node names to UI-friendly labels
-# ---------------------------------------------------------------------------
+
 NODE_META = {
     "reader":     {"label": "Profiling Reader",       "description": "Parsing rocprof metrics"},
     "analyzer":   {"label": "Kernel Analyzer",        "description": "Running AST analysis"},
@@ -57,17 +48,13 @@ NODE_META = {
 NODE_ORDER = ["reader", "analyzer", "classifier", "planner", "rewriter", "critic", "reporter"]
 
 
-# ---------------------------------------------------------------------------
-# SSE helper
-# ---------------------------------------------------------------------------
+
 def sse_event(event_type: str, data: dict) -> str:
     """Formats a Server-Sent Event string."""
     return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
 
 
-# ---------------------------------------------------------------------------
-# Streaming pipeline generator
-# ---------------------------------------------------------------------------
+
 async def run_pipeline_stream(
     kernel_code: str,
     profiling_data: str,
@@ -94,7 +81,7 @@ async def run_pipeline_stream(
         "critic_feedback":          None,
     }
 
-    # Signal pipeline start
+
     yield sse_event("pipeline_start", {
         "nodes": [
             {"id": name, **NODE_META[name]}
@@ -105,14 +92,13 @@ async def run_pipeline_stream(
     await asyncio.sleep(0.05)
 
     try:
-        # LangGraph stream_mode="updates" yields {node_name: state_update} per step
+
         final_state = None
 
         for chunk in deepwave_graph.stream(initial_state, stream_mode="updates"):
             for node_name, state_update in chunk.items():
                 meta = NODE_META.get(node_name, {"label": node_name, "description": ""})
 
-                # Build a safe summary of what this node produced
                 node_output = _summarize_node_output(node_name, state_update)
 
                 yield sse_event("node_complete", {
@@ -122,12 +108,12 @@ async def run_pipeline_stream(
                     "output":      node_output,
                 })
 
-                await asyncio.sleep(0.05)  # Slight delay for UI smoothness
+                await asyncio.sleep(0.05)  
                 final_state = state_update
 
-        # After all nodes complete, emit the full result
+
         if final_state is not None:
-            # Re-invoke to get the complete final state (stream gives partial updates)
+
             complete_state = deepwave_graph.invoke(initial_state)
             yield sse_event("pipeline_complete", _build_result_payload(complete_state))
         else:
@@ -160,6 +146,7 @@ def _summarize_node_output(node_name: str, state_update: dict) -> dict:
             summary["confidence_score"]   = diagnosis.confidence_score
             summary["evidence"]           = diagnosis.evidence
             summary["secondary"]          = diagnosis.secondary_bottleneck
+        summary["evidence_consistency"] = state_update.get("evidence_consistency")
 
     elif node_name == "planner":
         plan = state_update.get("optimization_plan")
@@ -202,6 +189,11 @@ def _build_result_payload(state: dict) -> dict:
             "evidence":           diagnosis.evidence           if diagnosis else [],
             "secondary":          diagnosis.secondary_bottleneck if diagnosis else None,
         },
+        "evidence_consistency":        state.get("evidence_consistency"),
+        "evidence_consistency_detail": state.get("evidence_consistency_detail"),
+        "severity_label":  state.get("severity_label"),
+        "severity_score":  state.get("severity_score"),
+        "severity_detail": state.get("severity_detail"),
         "optimization_plan": {
             "strategy_name":    plan.strategy_name    if plan else None,
             "target_scopes":    plan.target_scopes    if plan else [],
@@ -224,9 +216,7 @@ def _build_result_payload(state: dict) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
 # Routes
-# ---------------------------------------------------------------------------
 
 @app.get("/health")
 def health():
@@ -262,7 +252,7 @@ async def analyze(
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",   # Disable nginx buffering for SSE
+            "X-Accel-Buffering": "no",  
         }
     )
 

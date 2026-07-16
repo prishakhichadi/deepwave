@@ -1,7 +1,3 @@
-"""Cross-references the bottleneck diagnosis, optimization plan, and AST structural findings
-to surgically rewrite the .hip kernel. The plan node's output is the primary driver —
-this prevents the LLM from applying generic optimizations unrelated to the actual bottleneck."""
-
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from typing import Dict
@@ -24,8 +20,7 @@ def kernel_rewriter_node(state: KernelAgentState) -> Dict:
         raise ValueError("kernel_rewriter_node requires optimization_plan in state. "
                          "Run optimization_planner_node first.")
 
-    # Temperature 0.2 — allow creative strategy selection (loop unrolling vs tiling)
-    # but keep code generation grounded in the plan
+    # Temperature 0.2- allow creative strategy selection (loop unrolling vs tiling) but keep code generation grounded in the plan
     llm = settings.build_llm(settings.rewriter_model)
     structured_writer = llm.with_structured_output(
         OptimizedKernelOutput, method=settings.structured_output_method

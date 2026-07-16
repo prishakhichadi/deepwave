@@ -1,7 +1,3 @@
-"""Generates a synthetic rocprof profiling corpus covering all 4 bottleneck types.
-Each scenario produces a realistic CSV + a paired HIP kernel with a known bottleneck.
-Used for eval/testing when real hardware profiling data is unavailable."""
-
 import csv
 import os
 from pathlib import Path
@@ -10,9 +6,7 @@ OUTPUT_DIR = Path("corpus/synthetic")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# ---------------------------------------------------------------------------
-# Synthetic metric profiles — values grounded in real AMD MI300X behavior
-# ---------------------------------------------------------------------------
+
 SCENARIOS = [
     {
         "name": "memory_bandwidth_bound",
@@ -74,7 +68,7 @@ __global__ void dot_product_kernel(float* out, const float* a, const float* b, i
             "VALUUtilization":  34.1,
             "SALUUtilization":  14.2,
             "MemUnitStalled":   28.3,
-            "MaxWavesPerCU":     8.0,   # Well below 16 threshold
+            "MaxWavesPerCU":     8.0,   
             "L2CacheHit":       61.0,
             "LDSBankConflict":   2.1,
         },

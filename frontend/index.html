@@ -92,6 +92,13 @@
   .badge.medium{color:var(--amber);border-color:var(--amber);}
   .badge.low{color:var(--muted);}
   .badge.confidence{color:var(--accent);border-color:var(--accent);}
+  .badge.confirmed{color:var(--green);border-color:var(--green);}
+  .badge.conflicting{color:var(--red);border-color:var(--red);}
+  .badge.metrics_only{color:var(--amber);border-color:var(--amber);}
+  .badge.borderline{color:var(--green);border-color:var(--green);}
+  .badge.moderate{color:var(--accent);border-color:var(--accent);}
+  .badge.severe{color:var(--amber);border-color:var(--amber);}
+  .badge.critical{color:var(--red);border-color:var(--red);}
 
   .finding{border-left:2px solid var(--line);padding:8px 14px;margin-bottom:10px;}
   .finding.high{border-color:var(--red);}
@@ -119,7 +126,7 @@
   <header>
     <div>
       <div class="logo"><span class="dot"></span>DEEPWAVE</div>
-      <div class="tagline">Diagnoses why a GPU kernel is slow and rewrites it — with the reasoning shown, not just the numbers.</div>
+      <div class="tagline">Diagnoses why a GPU kernel is slow and rewrites it.</div>
     </div>
     <div class="health" id="health"><span class="pip"></span><span id="health-text">checking backend…</span></div>
   </header>
@@ -417,10 +424,19 @@ function esc(s){
 function renderResults(payload){
   // --- Diagnosis tab ---
   const diag = payload.diagnosis || {};
+  const consistency = payload.evidence_consistency;
+  const consistencyLabel = {
+    confirmed: "✅ Confirmed by structural analysis",
+    conflicting: "⚠️ Conflicting evidence — review recommended",
+    metrics_only: "ℹ️ Metrics-only — no structural corroboration",
+  }[consistency] || null;
+
   document.getElementById("tab-diagnosis").innerHTML = `
     <dl class="kv-grid">
       <dt>Bottleneck</dt><dd><strong>${esc(diag.bottleneck_type || "—")}</strong></dd>
       <dt>Confidence</dt><dd><span class="badge confidence">${diag.confidence_score != null ? (diag.confidence_score*100).toFixed(0)+"%" : "—"}</span></dd>
+      ${consistencyLabel ? `<dt>Cross-validation</dt><dd><span class="badge ${consistency}">${esc(consistencyLabel)}</span><div style="margin-top:6px;font-size:12.5px;color:var(--muted);">${esc(payload.evidence_consistency_detail||"")}</div></dd>` : ""}
+      ${payload.severity_label && payload.severity_label !== "unscored" ? `<dt>Severity</dt><dd><span class="badge ${payload.severity_label}">${esc(payload.severity_label.toUpperCase())} (${(payload.severity_score*100).toFixed(0)}%)</span><div style="margin-top:6px;font-size:12.5px;color:var(--muted);">${esc(payload.severity_detail||"")}</div></dd>` : ""}
       <dt>Secondary</dt><dd>${esc(diag.secondary || "none")}</dd>
       <dt>Evidence</dt><dd>${(diag.evidence||[]).map(e=>`<div>&bull; ${esc(e)}</div>`).join("") || "—"}</dd>
       <dt>Metrics</dt><dd style="font-family:var(--mono);font-size:12px;">${Object.entries(payload.parsed_metrics||{}).map(([k,v])=>`${esc(k)}=${v}`).join(" &nbsp;·&nbsp; ") || "—"}</dd>

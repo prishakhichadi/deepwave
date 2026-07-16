@@ -1,6 +1,5 @@
-"""DEEPWAVE LangGraph graph definition. Wires all nodes into a stateful reasoning loop
-with a conditional feedback edge: if confidence is low after the first pass, the agent
-re-runs the classifier and rewriter with updated context up to max_iterations times."""
+"""if confidence is low after first pass, agent re-runs classifier and
+rewriter with updated context up to max_iterations times."""
 
 from langgraph.graph import StateGraph, END
 from src.state import KernelAgentState
@@ -14,12 +13,6 @@ from src.nodes.critic import compiler_simulator_critic_node as critic_node
 from config.settings import settings
 
 
-# ---------------------------------------------------------------------------
-# Confidence threshold — if diagnosis confidence is below this after a pass,
-# the agent loops back to re-classify with enriched context.
-# Sourced from config/settings.py so it can be tuned via env vars without
-# touching code.
-# ---------------------------------------------------------------------------
 CONFIDENCE_THRESHOLD = settings.confidence_threshold
 DEFAULT_MAX_ITERATIONS = settings.max_iterations
 
@@ -56,7 +49,7 @@ def build_graph() -> StateGraph:
     """
     graph = StateGraph(KernelAgentState)
 
-    # --- Register all nodes ---
+
     graph.add_node("reader",     profiling_reader_node)
     graph.add_node("analyzer",   kernel_analyzer_node)
     graph.add_node("classifier", bottleneck_classifier_node)
@@ -65,35 +58,29 @@ def build_graph() -> StateGraph:
     graph.add_node("critic",     critic_node)
     graph.add_node("reporter",   report_writer_node)
 
-    # --- Linear edges (no branching) ---
+    # linear edges (no branching)
     graph.add_edge("reader",     "analyzer")
     graph.add_edge("analyzer",   "classifier")
     graph.add_edge("classifier", "planner")
     graph.add_edge("planner",    "rewriter")
     graph.add_edge("rewriter",   "critic")
 
-    # --- Conditional feedback edge from critic ---
-    # Retries go straight back to the rewriter (not the classifier) because the
-    # diagnosis and plan are still presumed correct — only the generated code was
-    # rejected. The rewriter prompt already has a {critic_feedback} slot for exactly
-    # this case, so this also fixes a bug where that feedback was never actually used
-    # on retry (the old routing re-ran the full diagnosis from scratch instead).
+
     graph.add_conditional_edges(
         "critic",
         should_loop,
         {
-            "replan": "rewriter",     # Loop back — regenerate the code using critic feedback
-            "done":   "reporter",     # Valid — write the final report
+            "replan": "rewriter",     # Loop back- regenerate the code using critic feedback
+            "done":   "reporter",     # Valid- write the final report
         }
     )
 
     graph.add_edge("reporter", END)
 
-    # --- Entry point ---
+
     graph.set_entry_point("reader")
 
     return graph.compile()
 
 
-# Compiled graph — import this in your runner / test harness
 deepwave_graph = build_graph()

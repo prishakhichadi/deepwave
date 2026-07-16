@@ -7,13 +7,11 @@ from langchain_openai import ChatOpenAI
 from typing import Dict
 from src.state import KernelAgentState, BottleneckDiagnosis
 from config.settings import settings
+from src.nodes.evidence_validator import cross_validate_diagnosis
+from src.nodes.severity import classify_severity
 
 
-# ---------------------------------------------------------------------------
-# AMD MI300X hardware reference thresholds used to guide the LLM classifier.
-# These are grounded in AMD CDNA3 architecture specs and omniperf guidance docs.
-# Having them in the prompt (not just the system message) makes reasoning explicit.
-# ---------------------------------------------------------------------------
+
 AMD_THRESHOLD_GUIDE = """
 AMD MI300X Hardware Threshold Reference (CDNA3 Architecture):
 --------------------------------------------------------------
@@ -77,7 +75,7 @@ def bottleneck_classifier_node(state: KernelAgentState) -> Dict:
 
     chain = prompt | structured_llm
 
-    # Pull AST insights from the richer findings list if available, else fall back
+
     ast_insights = state.get("ast_insights", ["No AST analysis available."])
     ast_text = "\n".join(ast_insights)
 
@@ -91,7 +89,27 @@ def bottleneck_classifier_node(state: KernelAgentState) -> Dict:
     if diagnosis.secondary_bottleneck:
         print(f"  Secondary: {diagnosis.secondary_bottleneck}")
 
-    return {"diagnosis": diagnosis}
+
+    ast_findings = state.get("ast_findings", [])
+    consistency_status, consistency_detail = cross_validate_diagnosis(diagnosis, ast_findings)
+    print(f"[bottleneck_classifier] Evidence cross-validation: {consistency_status}")
+    print(f"  {consistency_detail}")
+
+
+    severity_label, severity_score, severity_detail = classify_severity(
+        diagnosis.bottleneck_type, state["parsed_metrics"]
+    )
+    print(f"[bottleneck_classifier] Severity: {severity_label} ({severity_score:.2f})")
+    print(f"  {severity_detail}")
+
+    return {
+        "diagnosis": diagnosis,
+        "evidence_consistency": consistency_status,
+        "evidence_consistency_detail": consistency_detail,
+        "severity_label": severity_label,
+        "severity_score": severity_score,
+        "severity_detail": severity_detail,
+    }
 
 
 def _format_metrics(metrics: Dict[str, float]) -> str:

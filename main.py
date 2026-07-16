@@ -1,6 +1,3 @@
-"""DEEPWAVE entry point. Loads a HIP kernel and rocprof CSV, runs the full
-LangGraph agent pipeline, and prints/saves the final optimization report."""
-
 import argparse
 from pathlib import Path
 from src.graph import deepwave_graph
@@ -19,7 +16,7 @@ def run(kernel_path: str, profiling_path: str, output_path: str = "report.md") -
     print("  DEEPWAVE — GPU Kernel Optimization Agent")
     print("=" * 60 + "\n")
 
-    settings.require_api_key()  # fail fast with a clear message, not a deep LangChain error
+    settings.require_api_key() 
 
     kernel_code    = load_file(kernel_path)
     profiling_data = load_file(profiling_path)
@@ -47,12 +44,12 @@ def run(kernel_path: str, profiling_path: str, output_path: str = "report.md") -
 
     report = final_state.get("final_report", "No report generated.")
 
-    # Save to disk
+   
     Path(output_path).write_text(report, encoding="utf-8")
     print(f"\n{'=' * 60}")
     print(f"  Report saved to: {output_path}")
     print("=" * 60)
-    print(report[:2000])  # Preview first 2000 chars in terminal
+    print(report[:2000]) 
 
 
 if __name__ == "__main__":
