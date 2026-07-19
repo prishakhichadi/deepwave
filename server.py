@@ -42,10 +42,11 @@ NODE_META = {
     "planner":    {"label": "Optimization Planner",   "description": "Selecting optimization strategy"},
     "rewriter":   {"label": "Kernel Rewriter",        "description": "Rewriting kernel code"},
     "critic":     {"label": "Compiler Critic",        "description": "Validating rewritten code"},
+    "impact":     {"label": "Impact Analyzer",        "description": "Computing before/after improvement metrics"},
     "reporter":   {"label": "Report Writer",          "description": "Generating final report"},
 }
 
-NODE_ORDER = ["reader", "analyzer", "classifier", "planner", "rewriter", "critic", "reporter"]
+NODE_ORDER = ["reader", "analyzer", "classifier", "planner", "rewriter", "critic", "impact", "reporter"]
 
 
 
@@ -58,15 +59,22 @@ def sse_event(event_type: str, data: dict) -> str:
 async def run_pipeline_stream(
     kernel_code: str,
     profiling_data: str,
+    after_profiling_data: str = "",
 ) -> AsyncGenerator[str, None]:
     """
     Runs the LangGraph pipeline and yields SSE events for each node transition.
     The frontend consumes these to update the progress tracker in real time.
+
+    `after_profiling_data` is optional: a rocprof/omniperf CSV captured by re-running
+    the optimized kernel on hardware. If supplied, the impact node computes a real
+    measured before/after delta; otherwise it falls back to a labeled projection.
     """
     initial_state: KernelAgentState = {
         "raw_kernel_code":          kernel_code,
         "raw_profiling_data":       profiling_data,
+        "raw_after_profiling_data": after_profiling_data,
         "parsed_metrics":           {},
+        "after_parsed_metrics":     {},
         "ast_insights":             [],
         "ast_findings":             [],
         "diagnosis":                None,
@@ -74,6 +82,9 @@ async def run_pipeline_stream(
         "optimized_kernel_code":    None,
         "annotations":              None,
         "theoretical_improvement":  None,
+        "improvement_mode":         None,
+        "improvement_metrics":      [],
+        "improvement_summary":      None,
         "final_report":             None,
         "iteration_count":          0,
         "max_iterations":           3,
@@ -165,6 +176,11 @@ def _summarize_node_output(node_name: str, state_update: dict) -> dict:
         summary["verification_status"] = state_update.get("verification_status", "unknown")
         summary["critic_feedback"]     = state_update.get("critic_feedback", "")
 
+    elif node_name == "impact":
+        summary["improvement_mode"]    = state_update.get("improvement_mode")
+        summary["improvement_summary"] = state_update.get("improvement_summary")
+        summary["metric_count"]        = len(state_update.get("improvement_metrics") or [])
+
     elif node_name == "reporter":
         summary["report_generated"] = bool(state_update.get("final_report"))
 
@@ -211,6 +227,10 @@ def _build_result_payload(state: dict) -> dict:
             for f in findings
         ],
         "parsed_metrics": state.get("parsed_metrics", {}),
+        "after_parsed_metrics": state.get("after_parsed_metrics") or {},
+        "improvement_mode": state.get("improvement_mode"),
+        "improvement_metrics": state.get("improvement_metrics") or [],
+        "improvement_summary": state.get("improvement_summary"),
         "annotations": state.get("annotations") or {},
         "iteration_count": state.get("iteration_count", 0),
     }
@@ -225,8 +245,12 @@ def health():
 
 @app.post("/analyze")
 async def analyze(
-    kernel_file:   UploadFile = File(..., description=".hip or .cu kernel source file"),
+    kernel_file:    UploadFile = File(..., description=".hip or .cu kernel source file"),
     profiling_file: UploadFile = File(..., description="rocprof or omniperf CSV file"),
+    after_profiling_file: UploadFile = File(
+        None, description="Optional rocprof/omniperf CSV re-profiled AFTER applying the optimized kernel, "
+                           "for a measured (not projected) improvement comparison"
+    ),
 ):
     """
     Runs the full DEEPWAVE pipeline on the uploaded kernel + profiling data.
@@ -241,6 +265,7 @@ async def analyze(
 
     kernel_code    = (await kernel_file.read()).decode("utf-8")
     profiling_data = (await profiling_file.read()).decode("utf-8")
+    after_profiling_data = (await after_profiling_file.read()).decode("utf-8") if after_profiling_file else ""
 
     if not kernel_code.strip():
         raise HTTPException(400, "Kernel file is empty")
@@ -248,7 +273,7 @@ async def analyze(
         raise HTTPException(400, "Profiling CSV file is empty")
 
     return StreamingResponse(
-        run_pipeline_stream(kernel_code, profiling_data),
+        run_pipeline_stream(kernel_code, profiling_data, after_profiling_data),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -261,10 +286,13 @@ async def analyze(
 async def analyze_text(
     kernel_code:    str = Form(...),
     profiling_data: str = Form(...),
+    after_profiling_data: str = Form(""),
 ):
     """
     Same as /analyze but accepts raw text instead of file uploads.
-    Useful for the frontend's paste-mode input.
+    Useful for the frontend's paste-mode input. `after_profiling_data` is optional —
+    when omitted, the impact node falls back to a labeled projection instead of a
+    measured comparison.
     """
     if not kernel_code.strip():
         raise HTTPException(400, "Kernel code is empty")
@@ -272,7 +300,7 @@ async def analyze_text(
         raise HTTPException(400, "Profiling data is empty")
 
     return StreamingResponse(
-        run_pipeline_stream(kernel_code, profiling_data),
+        run_pipeline_stream(kernel_code, profiling_data, after_profiling_data),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

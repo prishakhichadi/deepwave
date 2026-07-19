@@ -161,7 +161,42 @@ def report_writer_node(state: KernelAgentState) -> Dict:
     report += f"{theoretical}\n\n"
     report += (
         "*Note: Theoretical estimates are based on architectural analysis. "
-        "Validate with rocprof re-profiling after applying changes.*\n"
+        "Validate with rocprof re-profiling after applying changes.*\n\n"
     )
+
+    # Section 7 — Before / After Improvement Metrics
+    improvement_mode    = state.get("improvement_mode")
+    improvement_metrics = state.get("improvement_metrics") or []
+    improvement_summary = state.get("improvement_summary")
+
+    report += "---\n\n## 7. Before / After Improvement\n\n"
+    if improvement_mode == "measured":
+        report += "**Mode: 📏 MEASURED** — computed from a re-profiled CSV of the optimized kernel.\n\n"
+    elif improvement_mode == "projected":
+        report += (
+            "**Mode: 🔮 PROJECTED (estimate only)** — no re-profiled data was supplied. "
+            "Re-run rocprof/omniperf on the optimized kernel and re-submit it as "
+            "`raw_after_profiling_data` to replace this with a measured result.\n\n"
+        )
+
+    if improvement_summary:
+        report += f"{improvement_summary}\n\n"
+
+    if improvement_metrics:
+        report += "| Metric | Before | After | Δ | % Change | Verdict |\n|---|---|---|---|---|---|\n"
+        for m in improvement_metrics:
+            verdict = {True: "✅ Improved", False: "⚠️ Regressed", None: "ℹ️ Informational"}.get(m.get("improved"))
+            pct = f"{m['pct_change']:+.1f}%" if m.get("pct_change") is not None else "—"
+            unit = m.get("unit", "")
+            if m.get("projected"):
+                lo, hi = m.get("projected_range_pct", [None, None])
+                pct = f"est. {lo:.0f}%–{hi:.0f}%" if lo is not None else pct
+            report += (
+                f"| `{m['metric']}` | {m['before']:.2f}{unit} | {m['after']:.2f}{unit} | "
+                f"{m['delta']:+.2f}{unit} | {pct} | {verdict} |\n"
+            )
+        report += "\n"
+    else:
+        report += "*No improvement metrics available.*\n\n"
 
     return {"final_report": report}

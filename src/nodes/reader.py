@@ -67,24 +67,24 @@ _METRIC_DEFAULTS: Dict[str, float] = {
 }
 
 
-def profiling_reader_node(state: KernelAgentState) -> Dict:
+def parse_metrics_csv(raw_csv: str, label: str = "profiling_reader") -> Dict[str, float]:
     """
-    Reads raw CSV string data from rocprof or omniperf and normalizes it into a
-    standard metrics dict. Auto-detects "wide" (one column per metric) vs "long"
-    (metric,value pairs, one per row) layout. Aggregates across multiple profiling
-    rows by taking the maximum observed value — this surfaces the worst-case
-    hardware pressure, which is what the classifier should reason about.
+    Reusable core parser: reads raw CSV string data from rocprof or omniperf and
+    normalizes it into a standard metrics dict. Auto-detects "wide" (one column per
+    metric) vs "long" (metric,value pairs, one per row) layout. Aggregates across
+    multiple profiling rows by taking the maximum observed value — this surfaces the
+    worst-case hardware pressure.
+
+    Used both for the pre-optimization reader node and for parsing post-optimization
+    ("after") profiling data in the impact analyzer, so both sides of a before/after
+    comparison go through identical normalization.
     """
-    raw_csv = state["raw_profiling_data"]
     metrics: Dict[str, float] = dict(_METRIC_DEFAULTS)  # always return full schema
 
-    clean_csv = raw_csv.strip()
+    clean_csv = (raw_csv or "").strip()
     if not clean_csv:
-        print("[Warning] profiling_reader_node: empty profiling data, returning defaults.")
-        return {
-            "parsed_metrics": metrics,
-            "iteration_count": state.get("iteration_count", 0) + 1,
-        }
+        print(f"[Warning] {label}: empty profiling data, returning defaults.")
+        return metrics
 
     matched_any = False
 
@@ -134,15 +134,23 @@ def profiling_reader_node(state: KernelAgentState) -> Dict:
 
         if not matched_any:
             print(
-                "[Warning] profiling_reader_node: no recognized metric columns/rows found "
-                f"(saw columns: {fieldnames}). Falling back to all-zero metrics — the "
-                "classifier will have no evidence to reason from."
+                f"[Warning] {label}: no recognized metric columns/rows found "
+                f"(saw columns: {fieldnames}). Falling back to all-zero metrics."
             )
 
     except Exception as e:
-        print(f"[Warning] profiling_reader_node: CSV parse failure — {e}")
+        print(f"[Warning] {label}: CSV parse failure — {e}")
 
-    _log_parsed_metrics(metrics)
+    _log_parsed_metrics(metrics, label)
+    return metrics
+
+
+def profiling_reader_node(state: KernelAgentState) -> Dict:
+    """
+    Reads raw CSV string data from rocprof or omniperf and normalizes it into a
+    standard metrics dict via parse_metrics_csv.
+    """
+    metrics = parse_metrics_csv(state["raw_profiling_data"], label="profiling_reader_node")
 
     return {
         "parsed_metrics": metrics,
@@ -150,9 +158,9 @@ def profiling_reader_node(state: KernelAgentState) -> Dict:
     }
 
 
-def _log_parsed_metrics(metrics: Dict[str, float]) -> None:
+def _log_parsed_metrics(metrics: Dict[str, float], label: str = "profiling_reader") -> None:
     """Prints a clean summary of extracted metrics for debugging."""
-    print("[profiling_reader] Extracted metrics:")
+    print(f"[{label}] Extracted metrics:")
     for key, value in metrics.items():
         if value > 0.0:
             print(f"  {key:25s} = {value:.4f}")

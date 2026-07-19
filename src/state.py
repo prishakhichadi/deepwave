@@ -75,6 +75,19 @@ class OptimizedKernelOutput(BaseModel):
 
 
 
+class MetricDelta(BaseModel):
+    """Before/after comparison for a single hardware metric."""
+    metric: str
+    label: str
+    before: float
+    after: float
+    delta: float                     # after - before
+    pct_change: Optional[float]      # percent change relative to `before`, None if before == 0
+    unit: str = ""
+    direction: Literal["lower_is_better", "higher_is_better", "informational"]
+    improved: Optional[bool]         # None when direction is "informational"
+
+
 class KernelAgentState(TypedDict):
     """The shared state dictionary updated dynamically across graph cycles."""
 
@@ -105,6 +118,13 @@ class KernelAgentState(TypedDict):
     annotations: Optional[Dict[str, str]]
     theoretical_improvement: Optional[str]
     final_report: Optional[str]
+
+
+    raw_after_profiling_data: Optional[str]   # optional rocprof/omniperf CSV re-profiled AFTER applying the rewrite
+    after_parsed_metrics: Optional[Dict[str, float]]
+    improvement_mode: Optional[str]      # "measured" | "projected"
+    improvement_metrics: Optional[List[Dict]]
+    improvement_summary: Optional[str]
 
 
     iteration_count: int

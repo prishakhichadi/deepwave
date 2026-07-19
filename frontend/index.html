@@ -65,7 +65,7 @@
   .run-hint{font-size:12.5px;color:var(--muted);}
   .error-banner{margin-top:14px;background:#2A1414;border:1px solid var(--red);color:#FFD3CB;font-size:13px;padding:10px 14px;border-radius:7px;font-family:var(--mono);}
 
-  /* --- Pipeline wave --- */
+
   .wave-wrap{position:relative;padding:10px 0 0;}
   svg.wave-svg{width:100%;height:150px;display:block;}
   .wave-path{fill:none;stroke:var(--line);stroke-width:2;}
@@ -76,7 +76,7 @@
   .node-label.current{color:var(--text);}
   .node-desc{grid-column:1/-1;text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:10px;min-height:16px;}
 
-  /* --- Results --- */
+
   .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:18px;flex-wrap:wrap;}
   .tab{font-family:var(--mono);font-size:12.5px;color:var(--muted);background:none;border:none;padding:9px 14px;cursor:pointer;border-bottom:2px solid transparent;}
   .tab.active{color:var(--accent);border-bottom-color:var(--accent);}
@@ -116,6 +116,34 @@
   .report-md{font-size:13.5px;line-height:1.7;white-space:pre-wrap;font-family:var(--mono);}
 
   .placeholder{color:var(--muted);font-size:13.5px;text-align:center;padding:40px 0;}
+
+  /* --- Improvement tab --- */
+  .mode-banner{font-family:var(--mono);font-size:12.5px;padding:10px 14px;border-radius:7px;margin-bottom:16px;border:1px solid var(--line);}
+  .mode-banner.measured{border-color:var(--green);color:var(--green);background:rgba(111,207,151,0.06);}
+  .mode-banner.projected{border-color:var(--amber);color:var(--amber);background:rgba(242,166,90,0.06);}
+  .improvement-summary{font-size:13px;color:var(--text);line-height:1.6;margin-bottom:20px;}
+  .metric-row{margin-bottom:18px;}
+  .metric-row .mr-head{display:flex;justify-content:space-between;align-items:baseline;font-family:var(--mono);font-size:12.5px;margin-bottom:6px;}
+  .metric-row .mr-name{color:var(--text);font-weight:600;}
+  .metric-row .mr-verdict{font-size:11.5px;}
+  .metric-row .mr-verdict.improved{color:var(--green);}
+  .metric-row .mr-verdict.regressed{color:var(--red);}
+  .metric-row .mr-verdict.na{color:var(--muted);}
+  .bar-track{position:relative;height:22px;background:var(--panel-raised);border:1px solid var(--line);border-radius:5px;overflow:hidden;}
+  .bar-fill{position:absolute;top:0;bottom:0;left:0;border-radius:4px 0 0 4px;transition:width .3s;}
+  .bar-fill.before{background:var(--muted);opacity:0.55;}
+  .bar-fill.after.improved{background:var(--green);}
+  .bar-fill.after.regressed{background:var(--red);}
+  .bar-fill.after.na{background:var(--accent);}
+  .bar-labels{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:4px;}
+  .bar-legend{display:flex;gap:16px;font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:18px;}
+  .bar-legend span{display:inline-flex;align-items:center;gap:5px;}
+  .bar-legend .swatch{width:9px;height:9px;border-radius:2px;display:inline-block;}
+
+  .validate-box{margin-top:26px;padding-top:20px;border-top:1px dashed var(--line);}
+  .validate-title{font-size:13.5px;font-weight:600;color:var(--text);margin-bottom:4px;}
+  .validate-sub{font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.5;}
+  .validate-box textarea{min-height:90px;}
 
   footer{margin-top:40px;text-align:center;color:var(--muted);font-size:12px;font-family:var(--mono);}
 </style>
@@ -170,6 +198,7 @@
       <button class="tab active" data-tab="diagnosis">Diagnosis</button>
       <button class="tab" data-tab="findings">Findings</button>
       <button class="tab" data-tab="plan">Plan</button>
+      <button class="tab" data-tab="improvement">Improvement</button>
       <button class="tab" data-tab="code">Code</button>
       <button class="tab" data-tab="report">Report</button>
     </div>
@@ -177,6 +206,7 @@
     <div class="tabpage active" id="tab-diagnosis"><div class="placeholder">Waiting for results…</div></div>
     <div class="tabpage" id="tab-findings"><div class="placeholder">Waiting for results…</div></div>
     <div class="tabpage" id="tab-plan"><div class="placeholder">Waiting for results…</div></div>
+    <div class="tabpage" id="tab-improvement"><div class="placeholder">Waiting for results…</div></div>
     <div class="tabpage" id="tab-code"><div class="placeholder">Waiting for results…</div></div>
     <div class="tabpage" id="tab-report"><div class="placeholder">Waiting for results…</div></div>
   </section>
@@ -185,16 +215,14 @@
 </div>
 
 <script>
-// ---------------------------------------------------------------------------
-// Config
-// ---------------------------------------------------------------------------
+    
 const API_BASE = (window.DEEPWAVE_API_BASE) || "http://localhost:8000";
 document.getElementById("api-base-label").textContent = API_BASE;
 
-const NODE_ORDER = ["reader","analyzer","classifier","planner","rewriter","critic","reporter"];
+const NODE_ORDER = ["reader","analyzer","classifier","planner","rewriter","critic","impact","reporter"];
 const NODE_LABELS = {
   reader:"Reader", analyzer:"Analyzer", classifier:"Classifier",
-  planner:"Planner", rewriter:"Rewriter", critic:"Critic", reporter:"Reporter"
+  planner:"Planner", rewriter:"Rewriter", critic:"Critic", impact:"Impact", reporter:"Reporter"
 };
 
 const EXAMPLES = [
@@ -204,9 +232,7 @@ const EXAMPLES = [
   {id:"latency_bound", label:"Latency bound"},
 ];
 
-// ---------------------------------------------------------------------------
-// Health check
-// ---------------------------------------------------------------------------
+
 async function checkHealth(){
   const el = document.getElementById("health");
   const txt = document.getElementById("health-text");
@@ -222,10 +248,7 @@ async function checkHealth(){
 }
 checkHealth();
 
-// ---------------------------------------------------------------------------
-// Example loader — fetches synthetic corpus files directly (served alongside
-// this page, or edit EXAMPLE_BASE_PATH to point at your corpus/synthetic dir).
-// ---------------------------------------------------------------------------
+
 const exampleBar = document.getElementById("examples");
 EXAMPLES.forEach(ex => {
   const btn = document.createElement("button");
@@ -258,9 +281,7 @@ async function loadExample(id, btnEl){
   }
 }
 
-// ---------------------------------------------------------------------------
-// Wave pipeline visualization
-// ---------------------------------------------------------------------------
+
 const svgNS = "http://www.w3.org/2000/svg";
 const W = 980, H = 150, MID = 75, AMP = 34;
 function waveY(x){ return MID + AMP * Math.sin((x / W) * Math.PI * 2.2); }
@@ -289,7 +310,7 @@ NODE_ORDER.forEach((name, i) => {
   nodeLabelsEl.appendChild(label);
 });
 
-function setNodeState(name, state){ // state: 'done' | 'current'
+function setNodeState(name, state){ 
   const circle = document.getElementById(`node-circle-${name}`);
   const label = document.getElementById(`node-label-${name}`);
   label.classList.remove("done","current");
@@ -314,9 +335,7 @@ function resetPipeline(){
   activePath.style.strokeDashoffset = "1";
 }
 
-// ---------------------------------------------------------------------------
-// SSE parsing over fetch (EventSource can't POST, so we parse manually)
-// ---------------------------------------------------------------------------
+
 function parseSSEBlock(block){
   let eventType = "message", data = "";
   for(const line of block.split("\n")){
@@ -326,12 +345,13 @@ function parseSSEBlock(block){
   return {eventType, data};
 }
 
+let lastKernelCode = "";
+let lastProfilingData = "";
+
 async function runAnalysis(){
   const kernelCode = document.getElementById("kernel-input").value.trim();
   const profilingData = document.getElementById("profiling-input").value.trim();
   const errorBanner = document.getElementById("error-banner");
-  const runBtn = document.getElementById("run-btn");
-  errorBanner.style.display = "none";
 
   if(!kernelCode || !profilingData){
     errorBanner.textContent = "Both a kernel and a profiling CSV are required.";
@@ -339,8 +359,47 @@ async function runAnalysis(){
     return;
   }
 
-  runBtn.disabled = true;
-  runBtn.textContent = "Running…";
+  lastKernelCode = kernelCode;
+  lastProfilingData = profilingData;
+
+  await executePipeline({
+    kernelCode, profilingData, afterProfilingData: "",
+    btn: document.getElementById("run-btn"),
+    btnIdleLabel: "Run analysis",
+  });
+}
+
+document.getElementById("run-btn").addEventListener("click", runAnalysis);
+
+
+async function runValidation(){
+  const afterProfilingData = document.getElementById("validate-input").value.trim();
+  const hint = document.getElementById("validate-hint");
+
+  if(!afterProfilingData){
+    hint.textContent = "Paste the re-profiled CSV first.";
+    return;
+  }
+  if(!lastKernelCode || !lastProfilingData){
+    hint.textContent = "Run an analysis first.";
+    return;
+  }
+
+  document.getElementById("pipeline-panel").style.display = "block";
+  document.getElementById("results-panel").style.display = "none";
+
+  await executePipeline({
+    kernelCode: lastKernelCode, profilingData: lastProfilingData, afterProfilingData,
+    btn: document.getElementById("validate-btn"),
+    btnIdleLabel: "Validate improvement",
+  });
+}
+
+async function executePipeline({kernelCode, profilingData, afterProfilingData, btn, btnIdleLabel}){
+  const errorBanner = document.getElementById("error-banner");
+  errorBanner.style.display = "none";
+
+  if(btn){ btn.disabled = true; btn.textContent = "Running…"; }
   document.getElementById("pipeline-panel").style.display = "block";
   document.getElementById("results-panel").style.display = "none";
   resetPipeline();
@@ -351,6 +410,7 @@ async function runAnalysis(){
     const form = new FormData();
     form.append("kernel_code", kernelCode);
     form.append("profiling_data", profilingData);
+    if(afterProfilingData) form.append("after_profiling_data", afterProfilingData);
 
     const res = await fetch(`${API_BASE}/analyze/text`, { method: "POST", body: form });
     if(!res.ok){
@@ -389,6 +449,13 @@ async function runAnalysis(){
         } else if(eventType === "pipeline_complete"){
           renderResults(payload);
           document.getElementById("results-panel").style.display = "block";
+          
+          if(afterProfilingData){
+            document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+            document.querySelectorAll(".tabpage").forEach(p => p.classList.remove("active"));
+            document.querySelector('.tab[data-tab="improvement"]').classList.add("active");
+            document.getElementById("tab-improvement").classList.add("active");
+          }
         } else if(eventType === "pipeline_error"){
           throw new Error(payload.message || "Pipeline failed.");
         }
@@ -398,16 +465,11 @@ async function runAnalysis(){
     errorBanner.textContent = e.message || String(e);
     errorBanner.style.display = "block";
   }finally{
-    runBtn.disabled = false;
-    runBtn.textContent = "Run analysis";
+    if(btn){ btn.disabled = false; btn.textContent = btnIdleLabel; }
   }
 }
 
-document.getElementById("run-btn").addEventListener("click", runAnalysis);
 
-// ---------------------------------------------------------------------------
-// Results rendering
-// ---------------------------------------------------------------------------
 document.querySelectorAll(".tab").forEach(tab => {
   tab.addEventListener("click", () => {
     document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
@@ -422,7 +484,7 @@ function esc(s){
 }
 
 function renderResults(payload){
-  // --- Diagnosis tab ---
+
   const diag = payload.diagnosis || {};
   const consistency = payload.evidence_consistency;
   const consistencyLabel = {
@@ -442,7 +504,7 @@ function renderResults(payload){
       <dt>Metrics</dt><dd style="font-family:var(--mono);font-size:12px;">${Object.entries(payload.parsed_metrics||{}).map(([k,v])=>`${esc(k)}=${v}`).join(" &nbsp;·&nbsp; ") || "—"}</dd>
     </dl>`;
 
-  // --- Findings tab ---
+
   const findings = payload.ast_findings || [];
   document.getElementById("tab-findings").innerHTML = findings.length ? findings.map(f => `
     <div class="finding ${f.severity}">
@@ -451,7 +513,7 @@ function renderResults(payload){
       <div class="fdesc">${esc(f.description)}</div>
     </div>`).join("") : `<div class="placeholder">No structural findings.</div>`;
 
-  // --- Plan tab ---
+
   const plan = payload.optimization_plan || {};
   document.getElementById("tab-plan").innerHTML = `
     <dl class="kv-grid">
@@ -462,7 +524,69 @@ function renderResults(payload){
       <dt>AMD hints</dt><dd>${(plan.amd_hints||[]).map(h=>`<div>&bull; ${esc(h)}</div>`).join("") || "—"}</dd>
     </dl>`;
 
-  // --- Code tab ---
+
+  const mode = payload.improvement_mode;
+  const metrics = payload.improvement_metrics || [];
+  const modeBanner = mode === "measured"
+    ? `<div class="mode-banner measured">📏 MEASURED — computed from a re-profiled CSV of the optimized kernel.</div>`
+    : mode === "projected"
+      ? `<div class="mode-banner projected">🔮 PROJECTED (estimate only) — the optimized code below hasn't been run on hardware yet. Compile it, profile it, and paste the results below to upgrade this to a measured result.</div>`
+      : "";
+
+  const barsHtml = metrics.length ? metrics.map(m => {
+    const verdictClass = m.improved === true ? "improved" : m.improved === false ? "regressed" : "na";
+    const verdictText = m.improved === true ? "✅ Improved" : m.improved === false ? "⚠️ Regressed" : "ℹ️ Informational";
+    const maxVal = Math.max(m.before, m.after, 1) * 1.15;
+    const beforePct = Math.min(100, (m.before / maxVal) * 100);
+    const afterPct = Math.min(100, (m.after / maxVal) * 100);
+    const pctLabel = m.pct_change != null
+      ? `${m.pct_change > 0 ? "+" : ""}${m.pct_change.toFixed(1)}%`
+      : (m.projected_range_pct ? `est. ${m.projected_range_pct[0]}%–${m.projected_range_pct[1]}%` : "—");
+    return `
+    <div class="metric-row">
+      <div class="mr-head">
+        <span class="mr-name">${esc(m.label)} <span style="color:var(--muted);">(${esc(m.metric)})</span></span>
+        <span class="mr-verdict ${verdictClass}">${verdictText} &nbsp; ${esc(pctLabel)}</span>
+      </div>
+      <div class="bar-track">
+        <div class="bar-fill before" style="width:${beforePct}%;"></div>
+      </div>
+      <div class="bar-track" style="margin-top:3px;">
+        <div class="bar-fill after ${verdictClass}" style="width:${afterPct}%;"></div>
+      </div>
+      <div class="bar-labels">
+        <span>before: ${m.before}${m.unit||""}</span>
+        <span>after: ${m.after}${m.unit||""}</span>
+      </div>
+    </div>`;
+  }).join("") : `<div class="placeholder">No improvement metrics available.</div>`;
+
+
+
+  const validateHtml = mode === "projected" ? `
+    <div class="validate-box">
+      <div class="validate-title">Have real profiling data now?</div>
+      <div class="validate-sub">Copy the code from the Code tab, compile it, run it, profile it with rocprof/omniperf, then paste that CSV below to replace this estimate with a measured result.</div>
+      <textarea id="validate-input" placeholder="metric,value&#10;valu_util,15.1&#10;mem_stalled,29.6" spellcheck="false"></textarea>
+      <div class="run-row" style="margin-top:10px;">
+        <button class="primary" id="validate-btn" onclick="runValidation()">Validate improvement</button>
+        <span class="run-hint" id="validate-hint"></span>
+      </div>
+    </div>` : "";
+
+  document.getElementById("tab-improvement").innerHTML = `
+    ${modeBanner}
+    <div class="improvement-summary">${esc(payload.improvement_summary || "")}</div>
+    ${metrics.length ? `<div class="bar-legend">
+      <span><span class="swatch" style="background:var(--muted);opacity:.55;"></span> before</span>
+      <span><span class="swatch" style="background:var(--green);"></span> after (improved)</span>
+      <span><span class="swatch" style="background:var(--red);"></span> after (regressed)</span>
+      <span><span class="swatch" style="background:var(--accent);"></span> after (informational)</span>
+    </div>` : ""}
+    ${barsHtml}
+    ${validateHtml}`;
+
+
   document.getElementById("tab-code").innerHTML = `
     <div class="code-cols">
       <div><div class="code-heading">Original</div><pre class="code">${esc(payload.original_code)}</pre></div>
@@ -470,7 +594,7 @@ function renderResults(payload){
     </div>
     <p style="font-size:13px;color:var(--muted);margin-top:14px;">${esc(payload.theoretical_improvement)}</p>`;
 
-  // --- Report tab ---
+
   document.getElementById("tab-report").innerHTML =
     `<div class="report-md">${esc(payload.final_report) || "No report generated."}</div>`;
 }

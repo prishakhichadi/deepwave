@@ -10,6 +10,7 @@ from src.nodes.planner import optimization_planner_node
 from src.nodes.rewriter import kernel_rewriter_node
 from src.nodes.reporter import report_writer_node
 from src.nodes.critic import compiler_simulator_critic_node as critic_node
+from src.nodes.impact import impact_analyzer_node
 from config.settings import settings
 
 
@@ -45,7 +46,7 @@ def build_graph() -> StateGraph:
                                                         └─ retry ─┘
                                                        (if critic rejects the rewrite)
                                                                   |
-                                                (if valid) → reporter → END
+                                          (if valid) → impact → reporter → END
     """
     graph = StateGraph(KernelAgentState)
 
@@ -56,6 +57,7 @@ def build_graph() -> StateGraph:
     graph.add_node("planner",    optimization_planner_node)
     graph.add_node("rewriter",   kernel_rewriter_node)
     graph.add_node("critic",     critic_node)
+    graph.add_node("impact",     impact_analyzer_node)
     graph.add_node("reporter",   report_writer_node)
 
     # linear edges (no branching)
@@ -71,10 +73,11 @@ def build_graph() -> StateGraph:
         should_loop,
         {
             "replan": "rewriter",     # Loop back- regenerate the code using critic feedback
-            "done":   "reporter",     # Valid- write the final report
+            "done":   "impact",       # Valid- compute before/after improvement metrics
         }
     )
 
+    graph.add_edge("impact",   "reporter")
     graph.add_edge("reporter", END)
 
 
