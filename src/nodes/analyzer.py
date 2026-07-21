@@ -1,5 +1,6 @@
 from tree_sitter import Language, Parser, Node, Query, QueryCursor
 import tree_sitter_cpp
+import re
 from typing import Dict, List, Tuple
 from src.state import KernelAgentState, ASTFinding
 
@@ -49,7 +50,6 @@ def kernel_analyzer_node(state: KernelAgentState) -> Dict:
     }
 
 
-# Detection Pass 1 — Thread Divergence
 
 def _detect_thread_divergence(root: Node, lines: List[str], lang: Language) -> List[ASTFinding]:
     findings = []
@@ -83,12 +83,47 @@ def _detect_thread_divergence(root: Node, lines: List[str], lang: Language) -> L
     return findings
 
 
-# Detection Pass 2 — Uncoalesced Memory Access
+
+def _get_thread_derived_vars(root: Node, lang: Language) -> set:
+    """
+    Finds simple local variables whose initializer references threadIdx/blockIdx,
+    e.g. `int i = blockIdx.x * blockDim.x + threadIdx.x;`. Real kernels almost never
+    subscript arrays with the raw `threadIdx.x` expression inline — they compute an
+    index variable once and reuse it, so tracking that one hop of indirection is
+    necessary to catch real strided-access patterns instead of only literal ones.
+    """
+    thread_vars = set()
+
+    query = Query(lang, """
+        (init_declarator
+            declarator: (identifier) @varname
+            value: (_) @initval)
+    """)
+    cursor = QueryCursor(query)
+    matches = cursor.matches(root)
+    for _, captures in matches:
+        varname_nodes = captures.get("varname", [])
+        initval_nodes = captures.get("initval", [])
+        if not varname_nodes or not initval_nodes:
+            continue
+        varname = varname_nodes[0].text.decode("utf8") if varname_nodes[0].text else ""
+        initval_text = initval_nodes[0].text.decode("utf8") if initval_nodes[0].text else ""
+        if "threadIdx" in initval_text or "blockIdx" in initval_text:
+            thread_vars.add(varname)
+    return thread_vars
+
+
+def _is_thread_referencing(index_text: str, thread_vars: set) -> bool:
+    if "threadIdx" in index_text or "blockIdx" in index_text:
+        return True
+    tokens = re.findall(r"[A-Za-z_]\w*", index_text)
+    return any(t in thread_vars for t in tokens)
+
 
 def _detect_uncoalesced_access(root: Node, lines: List[str], lang: Language) -> List[ASTFinding]:
     findings = []
     captures_dict: dict = {}
-    
+
     for node, tag in _run_query(lang, """
         (subscript_expression
             (subscript_argument_list) @index_expr) @array_access
@@ -96,14 +131,15 @@ def _detect_uncoalesced_access(root: Node, lines: List[str], lang: Language) -> 
         captures_dict.setdefault(tag, []).append(node)
 
     index_nodes = captures_dict.get("index_expr", [])
+    thread_vars = _get_thread_derived_vars(root, lang)
     strided_accesses = 0
 
     for node in index_nodes:
         index_text = node.text.decode("utf8") if node.text else ""
-        
-        if ("threadIdx" in index_text or "blockIdx" in index_text):
+
+        if _is_thread_referencing(index_text, thread_vars):
             if any(op in index_text for op in ["* ", " *", "/ ", " /"]):
-                if not _is_simple_linear(index_text):
+                if not _is_simple_linear(index_text, thread_vars):
                     strided_accesses += 1
 
     if strided_accesses > 0:
@@ -281,8 +317,7 @@ def _get_parent_text(node: Node, lines: List[str]) -> str:
     return ""
 
 
-def _is_simple_linear(index_text: str) -> bool:
-
+def _is_simple_linear(index_text: str, thread_vars: set = frozenset()) -> bool:
 
     # Strip known linear components
     linear_tokens = ["threadIdx.x", "threadIdx.y", "blockIdx.x", "blockIdx.y",
@@ -290,6 +325,11 @@ def _is_simple_linear(index_text: str) -> bool:
     remaining = index_text
     for token in linear_tokens:
         remaining = remaining.replace(token, "")
+    # A traced thread-derived variable used on its own (e.g. `i + 1`) is still linear —
+    # only flag it once it's multiplied/divided by something else, which the caller
+    # already checks for before calling this helper.
+    for var in thread_vars:
+        remaining = re.sub(rf"\b{re.escape(var)}\b", "", remaining)
     remaining = remaining.strip()
     # If only digits remain, it's a simple linear expression
     return remaining.isdigit() or remaining == ""

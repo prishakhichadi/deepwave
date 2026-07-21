@@ -8,10 +8,30 @@ from typing import Dict
 from src.state import KernelAgentState
 
 
+_THRESHOLDS = {
+    "valu_util":         "> 80% = Compute Bound",
+    "mem_stalled":       "> 50% = Memory Bound",
+    "max_waves_per_cu":  "< 16 = Occupancy Limited",
+    "l2_cache_hit":      "< 50% = Cache Miss Issue",
+    "lds_bank_conflict": "< 5% target",
+    "salu_util":         "< 30% target",
+}
+
+_CONSISTENCY_LABEL = {
+    "confirmed":     "Confirmed by structural analysis",
+    "conflicting":   "Conflicting evidence — review recommended",
+    "metrics_only":  "Metrics-only — no structural corroboration",
+}
+
+
 def report_writer_node(state: KernelAgentState) -> Dict:
     """
     Assembles the complete DEEPWAVE optimization report from all upstream node outputs.
     Produces a markdown document an AMD engineer can read, act on, and attach to a ticket.
+
+    Each fact is stated exactly once: there's no separate "summary" block restating
+    what the sections below already say — the section tables themselves are the
+    at-a-glance view.
     """
     original_code   = state.get("raw_kernel_code", "")
     optimized_code  = state.get("optimized_kernel_code", "")
@@ -23,6 +43,14 @@ def report_writer_node(state: KernelAgentState) -> Dict:
     theoretical     = state.get("theoretical_improvement", "Not estimated.")
     iteration       = state.get("iteration_count", 1)
 
+    severity_label       = state.get("severity_label")
+    severity_score       = state.get("severity_score")
+    severity_detail      = state.get("severity_detail")
+    consistency          = state.get("evidence_consistency")
+    consistency_detail   = state.get("evidence_consistency_detail")
+    improvement_mode     = state.get("improvement_mode")
+    improvement_metrics  = state.get("improvement_metrics") or []
+    improvement_summary  = state.get("improvement_summary")
 
     diff_lines = list(difflib.unified_diff(
         original_code.splitlines(keepends=True),
@@ -33,164 +61,103 @@ def report_writer_node(state: KernelAgentState) -> Dict:
     ))
     visual_diff = "\n".join(diff_lines)
 
-
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M UTC")
 
-    report = f"# DEEPWAVE: GPU Kernel Optimization Report\n"
-    report += f"*Generated: {timestamp} | Optimization pass #{iteration}*\n\n"
-    report += "---\n\n"
+    report  = "# DEEPWAVE — GPU Kernel Optimization Report\n\n"
+    report += f"Generated {timestamp} · optimization pass #{iteration}\n\n"
 
-    # Section 1 — Hardware Telemetry
-    report += "## 1. Hardware Telemetry Diagnosis\n\n"
+    # --- 1. Diagnosis ---------------------------------------------------------
+    report += "---\n\n## 1. Diagnosis\n\n"
     if diagnosis:
-        confidence_pct = f"{diagnosis.confidence_score * 100:.1f}%"
-        report += f"| Field | Value |\n|---|---|\n"
-        report += f"| **Primary Bottleneck** | `{diagnosis.bottleneck_type}` |\n"
-        report += f"| **Confidence** | {confidence_pct} |\n"
+        report += "| Field | Value |\n|---|---|\n"
+        report += f"| Bottleneck | `{diagnosis.bottleneck_type}` |\n"
+        report += f"| Confidence | {diagnosis.confidence_score * 100:.1f}% |\n"
         if diagnosis.secondary_bottleneck:
-            report += f"| **Secondary Bottleneck** | `{diagnosis.secondary_bottleneck}` |\n"
+            report += f"| Secondary bottleneck | `{diagnosis.secondary_bottleneck}` |\n"
+        if severity_label and severity_label != "unscored":
+            report += f"| Severity | `{severity_label.upper()}` ({severity_score:.2f}/1.00) |\n"
+        if consistency:
+            report += f"| Evidence check | {_CONSISTENCY_LABEL.get(consistency, consistency)} |\n"
         report += "\n"
     else:
         report += "*No diagnosis available.*\n\n"
 
-
-    severity_label = state.get("severity_label")
-    severity_score = state.get("severity_score")
-    severity_detail = state.get("severity_detail")
-    if severity_label and severity_label != "unscored":
-        severity_icon = {
-            "borderline": "🟢", "moderate": "🟡", "severe": "🟠", "critical": "🔴",
-        }.get(severity_label, "")
-        report += f"### Severity {severity_icon}\n\n"
-        report += f"**{severity_label.upper()}** (score: {severity_score:.2f}/1.00)\n\n"
+    if severity_detail:
         report += f"{severity_detail}\n\n"
-
-    
-    
-    consistency = state.get("evidence_consistency")
-    consistency_detail = state.get("evidence_consistency_detail")
-    if consistency:
-        icon = {"confirmed": "✅", "conflicting": "⚠️", "metrics_only": "ℹ️"}.get(consistency, "")
-        label = {
-            "confirmed": "Confirmed by structural analysis",
-            "conflicting": "Conflicting evidence — review recommended",
-            "metrics_only": "Metrics-only — no structural corroboration",
-        }.get(consistency, consistency)
-        report += f"### Evidence Cross-Validation {icon}\n\n"
-        report += f"**{label}**\n\n"
+    if consistency_detail:
         report += f"{consistency_detail}\n\n"
 
-
-
     if parsed_metrics:
-        report += "### Raw Hardware Metrics\n\n"
-        report += "| Metric | Value | AMD MI300X Threshold |\n|---|---|---|\n"
-        thresholds = {
-            "valu_util":        "> 80% = Compute Bound",
-            "mem_stalled":      "> 50% = Memory Bound",
-            "max_waves_per_cu": "< 16 = Occupancy Limited",
-            "l2_cache_hit":     "< 50% = Cache Miss Issue",
-            "lds_bank_conflict":"< 5% target",
-            "salu_util":        "< 30% target",
-        }
+        report += "**Raw hardware metrics**\n\n"
+        report += "| Metric | Value | AMD MI300X threshold |\n|---|---|---|\n"
         for key, val in parsed_metrics.items():
             if val > 0.0:
-                threshold = thresholds.get(key, "—")
-                report += f"| `{key}` | `{val:.4f}` | {threshold} |\n"
+                report += f"| `{key}` | {val:.4f} | {_THRESHOLDS.get(key, '—')} |\n"
         report += "\n"
 
-  
-  
     if diagnosis and diagnosis.evidence:
-        report += "### Diagnostic Evidence\n\n"
+        report += "**Diagnostic evidence**\n\n"
         for item in diagnosis.evidence:
             report += f"- {item}\n"
         report += "\n"
 
-    # Section 2 — AST Findings
-    report += "---\n\n## 2. Kernel Structure Analysis (AST)\n\n"
+    # --- 2. Kernel Structure Analysis ------------------------------------------
+    report += "---\n\n## 2. Kernel Structure Analysis\n\n"
     if ast_findings:
-        high    = [f for f in ast_findings if f.severity == "high"]
-        medium  = [f for f in ast_findings if f.severity == "medium"]
-        low     = [f for f in ast_findings if f.severity == "low"]
-
-        for severity_label, group in [("🔴 High", high), ("🟡 Medium", medium), ("🟢 Low", low)]:
-            if group:
-                report += f"### {severity_label} Severity\n\n"
-                for finding in group:
-                    report += f"**`{finding.finding_type}`** @ `{finding.location}`\n\n"
-                    report += f"> {finding.description}\n\n"
+        severity_order = {"high": 0, "medium": 1, "low": 2}
+        ordered = sorted(ast_findings, key=lambda f: severity_order.get(f.severity, 3))
+        report += "| Severity | Finding | Location | Description |\n|---|---|---|---|\n"
+        for f in ordered:
+            desc = f.description.replace("|", "/").replace("\n", " ")
+            report += f"| {f.severity} | `{f.finding_type}` | {f.location} | {desc} |\n"
+        report += "\n"
     else:
         report += "*No structural anti-patterns detected.*\n\n"
 
-    # Section 3 — Optimization Plan
+    # --- 3. Optimization Strategy -----------------------------------------------
     report += "---\n\n## 3. Optimization Strategy\n\n"
     if plan:
-        report += f"**Strategy:** `{plan.strategy_name}`\n\n"
-        report += f"**Target Scopes:** {', '.join(f'`{s}`' for s in plan.target_scopes)}\n\n"
-        report += f"**Rationale:** {plan.rationale}\n\n"
-        report += f"**Expected Impact:** `{plan.expected_impact}`\n\n"
+        report += "| Field | Value |\n|---|---|\n"
+        report += f"| Strategy | `{plan.strategy_name}` |\n"
+        report += f"| Target scopes | {', '.join(f'`{s}`' for s in plan.target_scopes)} |\n"
+        report += f"| Expected impact | `{plan.expected_impact}` |\n"
+        report += "\n"
+        report += f"{plan.rationale}\n\n"
         if plan.amd_specific_hints:
-            report += "**AMD-Specific Notes:**\n"
             for hint in plan.amd_specific_hints:
                 report += f"- {hint}\n"
             report += "\n"
     else:
         report += "*No optimization plan generated.*\n\n"
 
-    # Section 4 — Code Diff
+    # --- 4. Code Modifications -----------------------------------------------
     report += "---\n\n## 4. Code Modifications\n\n"
     if visual_diff.strip():
-        report += "```diff\n"
-        report += visual_diff + "\n"
-        report += "```\n\n"
+        report += "```diff\n" + visual_diff + "\n```\n\n"
     else:
         report += "*No code changes were generated in this pass.*\n\n"
 
-    # Section 5 — Annotations
-    report += "---\n\n## 5. Hardware-Justified Annotations\n\n"
     if annotations:
         for code_block, explanation in annotations.items():
-            report += f"### `{code_block}`\n\n"
-            report += f"> {explanation}\n\n"
-    else:
-        report += "*No annotations generated.*\n\n"
+            report += f"**`{code_block}`** — {explanation}\n\n"
 
-    # Section 6 — Theoretical Improvement
-    report += "---\n\n## 6. Theoretical Performance Improvement\n\n"
-    report += f"{theoretical}\n\n"
-    report += (
-        "*Note: Theoretical estimates are based on architectural analysis. "
-        "Validate with rocprof re-profiling after applying changes.*\n\n"
-    )
-
-    # Section 7 — Before / After Improvement Metrics
-    improvement_mode    = state.get("improvement_mode")
-    improvement_metrics = state.get("improvement_metrics") or []
-    improvement_summary = state.get("improvement_summary")
-
-    report += "---\n\n## 7. Before / After Improvement\n\n"
-    if improvement_mode == "measured":
-        report += "**Mode: 📏 MEASURED** — computed from a re-profiled CSV of the optimized kernel.\n\n"
-    elif improvement_mode == "projected":
-        report += (
-            "**Mode: 🔮 PROJECTED (estimate only)** — no re-profiled data was supplied. "
-            "Re-run rocprof/omniperf on the optimized kernel and re-submit it as "
-            "`raw_after_profiling_data` to replace this with a measured result.\n\n"
-        )
+    # --- 5. Improvement -----------------------------------------------------
+    report += "---\n\n## 5. Before / After Improvement\n\n"
+    if improvement_mode:
+        report += f"Mode: `{improvement_mode.upper()}`\n\n"
 
     if improvement_summary:
         report += f"{improvement_summary}\n\n"
 
     if improvement_metrics:
-        report += "| Metric | Before | After | Δ | % Change | Verdict |\n|---|---|---|---|---|---|\n"
+        report += "| Metric | Before | After | Δ | % change | Verdict |\n|---|---|---|---|---|---|\n"
         for m in improvement_metrics:
-            verdict = {True: "✅ Improved", False: "⚠️ Regressed", None: "ℹ️ Informational"}.get(m.get("improved"))
+            verdict = {True: "Improved", False: "Regressed", None: "Informational"}.get(m.get("improved"))
             pct = f"{m['pct_change']:+.1f}%" if m.get("pct_change") is not None else "—"
             unit = m.get("unit", "")
             if m.get("projected"):
                 lo, hi = m.get("projected_range_pct", [None, None])
-                pct = f"est. {lo:.0f}%–{hi:.0f}%" if lo is not None else pct
+                pct = f"est. {lo:.0f}–{hi:.0f}%" if lo is not None else pct
             report += (
                 f"| `{m['metric']}` | {m['before']:.2f}{unit} | {m['after']:.2f}{unit} | "
                 f"{m['delta']:+.2f}{unit} | {pct} | {verdict} |\n"
@@ -198,5 +165,11 @@ def report_writer_node(state: KernelAgentState) -> Dict:
         report += "\n"
     else:
         report += "*No improvement metrics available.*\n\n"
+
+    report += (
+        f"{theoretical}\n\n"
+        "*Theoretical estimates are based on architectural analysis; validate with rocprof "
+        "re-profiling after applying changes.*\n"
+    )
 
     return {"final_report": report}
