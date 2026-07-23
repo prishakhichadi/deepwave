@@ -24,7 +24,7 @@ METRIC_ALIASES: Dict[str, str] = {
     "MemUnitStalled":           "mem_stalled",
     "MemUnit_Stalled":          "mem_stalled",
     "MEM_UNIT_STALLED":         "mem_stalled",
-    "TCP_READ_LATENCY_sum":     "mem_stalled",   # omniperf proxy
+    "TCP_READ_LATENCY_sum":     "mem_stalled",   
     "mem_stalled":              "mem_stalled",
 
     # Occupancy
@@ -36,7 +36,7 @@ METRIC_ALIASES: Dict[str, str] = {
     # L2 cache hit rate — useful for memory bottleneck confirmation
     "L2CacheHit":               "l2_cache_hit",
     "L2_Cache_Hit":             "l2_cache_hit",
-    "TCP_TCC_READ_REQ_sum":     "l2_cache_hit",  # omniperf proxy
+    "TCP_TCC_READ_REQ_sum":     "l2_cache_hit",  
     "l2_cache_hit":             "l2_cache_hit",
 
     # Global memory bandwidth (GB/s) when available
@@ -49,12 +49,28 @@ METRIC_ALIASES: Dict[str, str] = {
     "LDSBankConflict":          "lds_bank_conflict",
     "LDS_Bank_Conflict":        "lds_bank_conflict",
     "lds_bank_conflict":        "lds_bank_conflict",
+
+    # VGPR (vector register) usage — proxy for register pressure / spill risk
+    "VGPRCount":                "vgpr_count",
+    "ArchVGPRs":                "vgpr_count",          
+    "vgpr_count":               "vgpr_count",
+    "registers_per_thread":     "vgpr_count",           
+    
+    "sm__warps_active.avg.pct_of_peak_sustained_active": "max_waves_per_cu",   
+    "achieved_occupancy":                                "max_waves_per_cu",
+    "dram__throughput.avg.pct_of_peak_sustained_elapsed": "mem_stalled",     
+    "gpu__compute_memory_throughput.avg.pct_of_peak_sustained_elapsed": "mem_stalled",
+    "sm__throughput.avg.pct_of_peak_sustained_elapsed":  "valu_util",        
+    "l2_cache_hit_rate":                                 "l2_cache_hit",
+    "lts__t_sector_hit_rate.pct":                        "l2_cache_hit",     
+    "shared_ld_bank_conflict":                            "lds_bank_conflict", 
+    "l1tex__data_bank_conflicts_pipe_lsu.sum":            "lds_bank_conflict",
 }
 
-# Case-insensitive lookup: lowercased alias -> normalized key
+
 _ALIAS_LOOKUP: Dict[str, str] = {k.lower(): v for k, v in METRIC_ALIASES.items()}
 
-# Default zero-value dict so downstream nodes always get every key
+
 _METRIC_DEFAULTS: Dict[str, float] = {
     "valu_util":        0.0,
     "salu_util":        0.0,
@@ -64,22 +80,14 @@ _METRIC_DEFAULTS: Dict[str, float] = {
     "fetch_size_kb":    0.0,
     "write_size_kb":    0.0,
     "lds_bank_conflict":0.0,
+    "vgpr_count":       0.0,
 }
 
 
 def parse_metrics_csv(raw_csv: str, label: str = "profiling_reader") -> Dict[str, float]:
-    """
-    Reusable core parser: reads raw CSV string data from rocprof or omniperf and
-    normalizes it into a standard metrics dict. Auto-detects "wide" (one column per
-    metric) vs "long" (metric,value pairs, one per row) layout. Aggregates across
-    multiple profiling rows by taking the maximum observed value — this surfaces the
-    worst-case hardware pressure.
-
-    Used both for the pre-optimization reader node and for parsing post-optimization
-    ("after") profiling data in the impact analyzer, so both sides of a before/after
-    comparison go through identical normalization.
-    """
-    metrics: Dict[str, float] = dict(_METRIC_DEFAULTS)  # always return full schema
+   
+   
+    metrics: Dict[str, float] = dict(_METRIC_DEFAULTS) 
 
     clean_csv = (raw_csv or "").strip()
     if not clean_csv:
@@ -103,7 +111,7 @@ def parse_metrics_csv(raw_csv: str, label: str = "profiling_reader") -> Dict[str
             }
 
             if is_long_format:
-                # "metric,value" layout: each ROW is one metric/value pair.
+
                 metric_name = clean_row.get("metric") or clean_row.get("Metric")
                 raw_value = clean_row.get("value") or clean_row.get("Value")
                 if metric_name is None or raw_value is None:
@@ -118,7 +126,7 @@ def parse_metrics_csv(raw_csv: str, label: str = "profiling_reader") -> Dict[str
                 except ValueError:
                     pass
             else:
-                # Wide layout: each COLUMN is a metric.
+
                 for col_name, raw_value in clean_row.items():
                     if col_name is None:
                         continue
@@ -146,10 +154,7 @@ def parse_metrics_csv(raw_csv: str, label: str = "profiling_reader") -> Dict[str
 
 
 def profiling_reader_node(state: KernelAgentState) -> Dict:
-    """
-    Reads raw CSV string data from rocprof or omniperf and normalizes it into a
-    standard metrics dict via parse_metrics_csv.
-    """
+    
     metrics = parse_metrics_csv(state["raw_profiling_data"], label="profiling_reader_node")
 
     return {
@@ -159,7 +164,6 @@ def profiling_reader_node(state: KernelAgentState) -> Dict:
 
 
 def _log_parsed_metrics(metrics: Dict[str, float], label: str = "profiling_reader") -> None:
-    """Prints a clean summary of extracted metrics for debugging."""
     print(f"[{label}] Extracted metrics:")
     for key, value in metrics.items():
         if value > 0.0:

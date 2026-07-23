@@ -29,6 +29,24 @@ OCCUPANCY LIMITED:
   3. Block Size Tuning — experiment with 128/256 threads; AMD wavefront = 64 threads
   4. Kernel Splitting — break monolithic kernels into smaller focused kernels
 
+LDS BANK CONFLICT BOUND:
+  1. Shared Memory Padding — add a padding column to shared arrays (e.g. tile[N][M+1]) to
+     break the power-of-2 alignment that causes threads to collide on the same bank
+  2. Swizzled/XOR Indexing — permute the shared memory address (index ^ (index >> k)) to
+     spread accesses evenly across the 32 banks
+  3. Vectorized LDS Access — use wider ds_read_b128/ds_write_b128 transactions where
+     possible, reducing the number of narrow, conflict-prone accesses
+
+REGISTER PRESSURE BOUND:
+  1. __launch_bounds__ Hint — cap max registers per thread so the compiler trades some
+     ILP for guaranteed occupancy instead of silently spilling
+  2. Reduce Live Variable Scope — narrow variable lifetimes and reuse registers instead
+     of holding many values live simultaneously
+  3. Move Private Arrays to Shared Memory — local (non-shared) arrays are a strong spill
+     signal; move reused private arrays into __shared__ deliberately
+  4. Kernel Splitting — break a register-heavy kernel into two smaller kernels to lower
+     peak per-thread register demand
+
 LATENCY BOUND:
   1. Instruction-Level Parallelism — reorder independent instructions to fill pipelines
   2. Memory Prefetching — use async copies or manual prefetch to hide latency

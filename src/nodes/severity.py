@@ -6,17 +6,15 @@ _SEVERITY_METRIC: Dict[str, Tuple[str, float, str]] = {
     "Memory Bandwidth Bound": ("mem_stalled", 50.0, "higher_is_worse"),
     "Compute Bound":          ("valu_util", 80.0, "higher_is_worse"),
     "Occupancy Limited":      ("max_waves_per_cu", 16.0, "lower_is_worse"),
+    "LDS Bank Conflict Bound": ("lds_bank_conflict", 5.0, "higher_is_worse"),
+    "Register Pressure Bound": ("vgpr_count", 64.0, "higher_is_worse"),
     "Latency Bound":          (None, None, None),
 }
 
 
 def classify_severity(bottleneck_type: str, metrics: Dict[str, float]) -> Tuple[str, float, str]:
-    """
-    Returns (severity_label, severity_score, detail) where:
-      severity_label: "borderline" | "moderate" | "severe" | "critical" | "unscored"
-      severity_score: 0.0-1.0, how far past the threshold the driving metric is
-      detail: human-readable explanation citing the actual metric value
-    """
+    
+    
     metric_name, threshold, direction = _SEVERITY_METRIC.get(bottleneck_type, (None, None, None))
 
     if metric_name is None or metric_name not in metrics:

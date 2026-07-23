@@ -11,7 +11,9 @@ class BottleneckDiagnosis(BaseModel):
         "Memory Bandwidth Bound",
         "Compute Bound",
         "Occupancy Limited",
-        "Latency Bound"
+        "Latency Bound",
+        "LDS Bank Conflict Bound",
+        "Register Pressure Bound"
     ]
     confidence_score: float = Field(
         ge=0.0, le=1.0,
@@ -36,7 +38,9 @@ class ASTFinding(BaseModel):
         "redundant_global_load",
         "scalar_operation_in_kernel",
         "pointer_aliasing_risk",
-        "loop_structure"
+        "loop_structure",
+        "lds_bank_conflict_risk",
+        "high_register_pressure"
     ]
     location: str = Field(description="Function name or line-level scope where this was found")
     description: str = Field(description="Plain-English explanation of what was detected")

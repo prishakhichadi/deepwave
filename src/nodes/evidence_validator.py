@@ -1,6 +1,3 @@
-"""Cross-validates the classifier's metrics-based bottleneck diagnosis against the
-kernel_analyzer's independent AST-based structural findings."""
-
 from typing import List, Tuple
 from src.state import ASTFinding, BottleneckDiagnosis
 
@@ -14,10 +11,16 @@ CONFIRMING_FINDINGS = {
         "scalar_operation_in_kernel", "loop_structure"
     },
     "Occupancy Limited": {
-        "poor_occupancy_structure"
+        "poor_occupancy_structure", "high_register_pressure"
     },
     "Latency Bound": {
         "pointer_aliasing_risk"
+    },
+    "LDS Bank Conflict Bound": {
+        "lds_bank_conflict_risk"
+    },
+    "Register Pressure Bound": {
+        "high_register_pressure"
     },
 }
 
@@ -26,6 +29,8 @@ CONTRADICTING_FINDINGS = {
     "Compute Bound": {"uncoalesced_memory_access", "missing_shared_memory"},
     "Occupancy Limited": set(),
     "Latency Bound": {"uncoalesced_memory_access"},
+    "LDS Bank Conflict Bound": set(),
+    "Register Pressure Bound": set(),
 }
 
 
@@ -33,13 +38,8 @@ def cross_validate_diagnosis(
     diagnosis: BottleneckDiagnosis,
     ast_findings: List[ASTFinding],
 ) -> Tuple[str, str]:
-    """
-    Returns (status, detail) where status is one of:
-      "confirmed"     — at least one AST finding structurally supports the diagnosis
-      "conflicting"    — an AST finding points toward a *different* bottleneck
-      "metrics_only"   — no structural finding either confirms or contradicts;
-                          the diagnosis rests on hardware counters alone
-    """
+
+
     bottleneck = diagnosis.bottleneck_type
     finding_types = {f.finding_type for f in ast_findings}
 

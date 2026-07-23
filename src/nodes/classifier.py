@@ -24,14 +24,20 @@ mem_stalled         | > 30%        | Likely memory pressure worth addressing
 max_waves_per_cu    | < 16 waves   | Occupancy Limited (MI300X max = 32 waves/CU)
 max_waves_per_cu    | 16-24 waves  | Moderate occupancy — possible register spill
 l2_cache_hit        | < 50%        | High L2 miss rate — memory access pattern issue
-lds_bank_conflict   | > 5%         | LDS bank conflict — shared memory layout issue
+lds_bank_conflict   | > 5%         | LDS Bank Conflict Bound — shared memory layout issue
 salu_util           | > 30%        | High scalar activity — possible control flow issue
+vgpr_count          | > 64/thread  | Register Pressure Bound — spill risk, occupancy capped
 
 Classification Priority (if multiple signals present):
 1. Memory Bandwidth Bound — if mem_stalled > 50% regardless of valu_util
-2. Occupancy Limited — if max_waves_per_cu < 16 (blocks everything else)
-3. Compute Bound — if valu_util > 80% and mem_stalled < 30%
-4. Latency Bound — if valu_util < 40%, mem_stalled < 30%, and low occupancy
+2. LDS Bank Conflict Bound — if lds_bank_conflict > 5% and mem_stalled <= 50%
+   (shared-memory-local bank conflicts, distinct from global bandwidth pressure)
+3. Occupancy Limited — if max_waves_per_cu < 16 (blocks everything else)
+4. Register Pressure Bound — if vgpr_count > 64/thread, even when max_waves_per_cu
+   is only moderately reduced (16-24) — the register count is the root cause, not
+   just a side effect of occupancy
+5. Compute Bound — if valu_util > 80% and mem_stalled < 30%
+6. Latency Bound — if valu_util < 40%, mem_stalled < 30%, and low occupancy
 """
 
 
@@ -55,9 +61,12 @@ def bottleneck_classifier_node(state: KernelAgentState) -> Dict:
             "telemetry metrics and kernel structure findings.\n\n"
             "Follow the classification priority strictly:\n"
             "1. If mem_stalled > 50% → Memory Bandwidth Bound (regardless of compute utilization)\n"
-            "2. If max_waves_per_cu < 16 → Occupancy Limited (this gates everything else)\n"
-            "3. If valu_util > 80% and mem_stalled < 30% → Compute Bound\n"
-            "4. Otherwise → Latency Bound\n\n"
+            "2. If lds_bank_conflict > 5% and mem_stalled <= 50% → LDS Bank Conflict Bound\n"
+            "3. If max_waves_per_cu < 16 → Occupancy Limited (this gates everything else)\n"
+            "4. If vgpr_count > 64/thread → Register Pressure Bound (root cause is register "
+            "usage, even if occupancy is only moderately reduced)\n"
+            "5. If valu_util > 80% and mem_stalled < 30% → Compute Bound\n"
+            "6. Otherwise → Latency Bound\n\n"
             "Your evidence list must include the SPECIFIC metric values that drove your decision "
             "(e.g. 'mem_stalled = 72.3%, threshold = 50%') — not generic statements.\n\n"
             "If a secondary bottleneck is also clearly present, note it in secondary_bottleneck.\n\n"

@@ -126,6 +126,81 @@ __global__ void pointer_chase(int* out, const int* indices, const float* data, i
 }
 """
     },
+    {
+        "name": "lds_bank_conflict_bound",
+        "description": "Unpadded shared memory tile with strided access — LDS bank conflicts",
+        "metrics": {
+            "VALUUtilization":  42.6,
+            "SALUUtilization":  10.5,
+            "MemUnitStalled":   21.7,
+            "MaxWavesPerCU":    22.0,
+            "L2CacheHit":       68.4,
+            "LDSBankConflict":  27.3,
+            "VGPRCount":        38.0,
+        },
+        "kernel": """\
+#include <hip/hip_runtime.h>
+
+// BOTTLENECK: LDS bank conflict — unpadded shared tile, strided intra-block access.
+// tile[row][col * STRIDE] lands multiple threads in a wavefront on the same one of
+// the 32 LDS banks on MI300X, serializing what should be a single-cycle LDS read.
+#define STRIDE 8
+__global__ void banked_reduce(float* out, const float* in, int n) {
+    __shared__ float tile[64];  // no padding — 64 == 2*32 banks, conflict-prone
+
+    int tid = threadIdx.x;
+    int gid = blockIdx.x * blockDim.x + tid;
+    if (gid < n) {
+        tile[tid] = in[gid];
+    }
+    __syncthreads();
+
+    // Strided shared-memory read — every STRIDE-th thread hits the same bank.
+    float v = tile[(tid * STRIDE) % 64];
+    if (gid < n) {
+        out[gid] = v;
+    }
+}
+"""
+    },
+    {
+        "name": "register_pressure_bound",
+        "description": "Excessive live scalars + a private local array — register spill risk",
+        "metrics": {
+            "VALUUtilization":  55.8,
+            "SALUUtilization":  18.2,
+            "MemUnitStalled":   24.1,
+            "MaxWavesPerCU":    19.0,  
+            "L2CacheHit":       71.5,
+            "LDSBankConflict":   1.2,
+            "VGPRCount":        96.0,   
+        },
+        "kernel": """\
+#include <hip/hip_runtime.h>
+
+// BOTTLENECK: Register pressure — many live scalars plus a private per-thread array
+// that the compiler can't fully keep in registers, forcing spills to local memory.
+__global__ void heavy_stencil(float* out, const float* in, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+
+    // Large private array per thread — classic spill trigger, not shared across threads.
+    float window[16];
+    for (int k = 0; k < 16; k++) {
+        int idx = i + k - 8;
+        window[k] = (idx >= 0 && idx < n) ? in[idx] : 0.0f;
+    }
+
+    // Many simultaneously-live scalars compound the pressure.
+    float a0=window[0], a1=window[1], a2=window[2], a3=window[3];
+    float a4=window[4], a5=window[5], a6=window[6], a7=window[7];
+    float a8=window[8], a9=window[9], a10=window[10], a11=window[11];
+    float a12=window[12], a13=window[13], a14=window[14], a15=window[15];
+
+    out[i] = (a0+a1+a2+a3+a4+a5+a6+a7+a8+a9+a10+a11+a12+a13+a14+a15) / 16.0f;
+}
+"""
+    },
 ]
 
 

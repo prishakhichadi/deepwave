@@ -1,34 +1,9 @@
-"""Computes the before/after improvement metric for the DEEPWAVE pipeline.
-
-DEEPWAVE diagnoses a kernel and generates a rewrite, but it never compiles or
-executes the rewritten kernel on real hardware — so there is no automatic "after"
-measurement. This node closes that gap in two ways:
-
-  1. MEASURED  — if the caller supplies `raw_after_profiling_data` (a rocprof/omniperf
-     CSV captured by actually re-running the optimized kernel), we parse it with the
-     exact same normalizer used for the baseline and diff the two metric sets directly.
-     This is real, hardware-verified improvement.
-
-  2. PROJECTED — if no after-data is supplied, we derive a heuristic estimate from the
-     severity score (how far past its bottleneck threshold the baseline was) and the
-     planner's declared expected_impact. This is clearly labeled as an estimate, not
-     a measurement, and is meant to give a directional sense of impact while the user
-     goes and re-profiles for real.
-
-Either way, the output feeds directly into the report writer and the API payload so
-the frontend can render a stats-before/after panel.
-"""
-
 from typing import Dict, List, Optional, Tuple
 from src.state import KernelAgentState
 from src.nodes.reader import parse_metrics_csv
 
 
-# metric_key -> (display label, unit, direction)
-# direction:
-#   "lower_is_better"  — smaller after-value is an improvement (stalls, conflicts, overhead)
-#   "higher_is_better"  — larger after-value is an improvement (occupancy, cache hits)
-#   "informational"     — no universal "better" direction; shown for context only
+
 METRIC_META: Dict[str, Tuple[str, str, str]] = {
     "mem_stalled":        ("Memory Unit Stalled",   "%",  "lower_is_better"),
     "lds_bank_conflict":  ("LDS Bank Conflicts",    "%",  "lower_is_better"),
@@ -38,16 +13,17 @@ METRIC_META: Dict[str, Tuple[str, str, str]] = {
     "valu_util":          ("Vector ALU Utilization", "%", "informational"),
     "fetch_size_kb":      ("Fetch Size",            "KB", "informational"),
     "write_size_kb":      ("Write Size",            "KB", "informational"),
+    "vgpr_count":         ("VGPRs per Thread",      "",   "lower_is_better"),
 }
 
-# For the metric that actually drives the diagnosed bottleneck, we know unambiguously
-# which direction counts as improvement even for metrics marked "informational" above
-# (valu_util is ambiguous in general, but not once we know the kernel was Compute Bound).
+
 _BOTTLENECK_DRIVER: Dict[str, Tuple[str, str]] = {
     "Memory Bandwidth Bound": ("mem_stalled", "lower_is_better"),
     "Compute Bound":          ("valu_util", "lower_is_better"),
     "Occupancy Limited":      ("max_waves_per_cu", "higher_is_better"),
     "Latency Bound":          ("mem_stalled", "lower_is_better"),
+    "LDS Bank Conflict Bound": ("lds_bank_conflict", "lower_is_better"),
+    "Register Pressure Bound": ("vgpr_count", "lower_is_better"),
 }
 
 _IMPACT_RANGE_PCT: Dict[str, Tuple[float, float]] = {
@@ -95,8 +71,7 @@ def compute_measured_deltas(
     before_metrics: Dict[str, float],
     after_metrics: Dict[str, float],
 ) -> List[Dict]:
-    """Diffs two already-parsed metric dicts. Only includes metrics where at least
-    one side is non-zero, so we don't clutter the comparison with untouched columns."""
+    
     deltas = []
     for metric in METRIC_META:
         before = before_metrics.get(metric, 0.0)
@@ -129,12 +104,8 @@ def project_deltas(
     expected_impact: Optional[str],
     before_metrics: Dict[str, float],
 ) -> Tuple[List[Dict], str]:
-    """
-    Heuristic-only projection used when no real after-profiling data is available.
-    Combines the planner's qualitative expected_impact with how severe the baseline
-    bottleneck was (severity_score) to project a plausible improvement range for the
-    single metric that drives the diagnosis. This is NOT a measurement.
-    """
+  
+  
     if not bottleneck_type or bottleneck_type not in _BOTTLENECK_DRIVER:
         return [], "No diagnosis available — cannot project an improvement range."
 
@@ -142,10 +113,10 @@ def project_deltas(
     before = before_metrics.get(driver_metric, 0.0)
 
     lo, hi = _IMPACT_RANGE_PCT.get((expected_impact or "medium").lower(), _IMPACT_RANGE_PCT["medium"])
-    # Scale the projected range by how severe the baseline was — a more severe
-    # bottleneck has more headroom to improve.
+    
+    
     severity_score = severity_score if severity_score is not None else 0.5
-    scale = 0.6 + 0.8 * severity_score  # severity 0 -> 0.6x, severity 1 -> 1.4x
+    scale = 0.6 + 0.8 * severity_score 
     lo, hi = lo * scale, hi * scale
 
     if before == 0.0:
@@ -178,11 +149,8 @@ def project_deltas(
 
 
 def impact_analyzer_node(state: KernelAgentState) -> Dict:
-    """
-    Graph node: produces improvement_mode, improvement_metrics, improvement_summary.
-    Runs after the critic accepts a rewrite (or after the loop exhausts retries),
-    right before the reporter assembles the final report.
-    """
+   
+   
     before_metrics = state.get("parsed_metrics") or {}
     diagnosis = state.get("diagnosis")
     bottleneck_type = diagnosis.bottleneck_type if diagnosis else None
